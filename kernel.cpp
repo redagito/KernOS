@@ -144,12 +144,12 @@ extern "C" void KernelMain(void* multi_boot, unsigned int magic_number)
     terminal_initialize();
     
     // 
-    print_info("Kernel initializing...");
-    print_ok("Kernel successfully initialized");
-    print_error("Fatal error detected, self destruction sequence initiated");
+    print_info("Hello World!");
+    print_error("Hello World!");
+    print_ok("Hello World!");
 
-    // while (true)
-    // {
+    while (true)
+    {
 
-    // }
+    }
 }

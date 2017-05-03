@@ -1,41 +1,45 @@
+.DEFAULT_GOAL := runkernel
+
 # C++ flags
 CXXFLAGS = -m32 -fno-use-cxa-atexit -nostdlib -fno-builtin -fno-rtti -fno-exceptions -fno-leading-underscore
 ASFLAGS = --32
 LDFLAGS = -melf_i386
 
-objects = loader.o kernel.o
+objects = obj/loader.o obj/kernel.o
 
 # C++ sources
-%.o: %.cpp
+obj/%.o: %.cpp
 	g++ $(CXXFLAGS) -o $@ -c $<
 
 # ASM sources
-%.o: %.s
+obj/%.o: %.s
 	as $(ASFLAGS) -o $@ $<
 
-kernel.bin: linker.ld $(objects)
+bin/kernel.bin: linker.ld $(objects)
 	ld $(LDFLAGS) -T $< -o $@ $(objects)
 	./script/verify_kernel.sh
 
-kernel.iso: kernel.bin
-	mkdir iso
-	mkdir iso/boot
-	mkdir iso/boot/grub
-	cp $< iso/boot/
-	echo 'menuentry "KernOS" {' >> iso/boot/grub/grub.cfg
-	echo '    multiboot /boot/kernel.bin' >> iso/boot/grub/grub.cfg
-	echo '    boot' >> iso/boot/grub/grub.cfg
-	echo '}' >> iso/boot/grub/grub.cfg
-	grub-mkrescue -o $@ iso
-	rm -rf iso
+# Currently does not work
+bin/kernel.iso: bin/kernel.bin
+	mkdir bin/iso
+	mkdir bin/iso/boot
+	mkdir bin/iso/boot/grub
+	cp $< bin/iso/boot/
+	echo 'menuentry "KernOS" {' >> bin/iso/boot/grub/grub.cfg
+	echo '    multiboot /boot/kernel.bin' >> bin/iso/boot/grub/grub.cfg
+	echo '    boot' >> bin/iso/boot/grub/grub.cfg
+	echo '}' >> bin/iso/boot/grub/grub.cfg
+	grub-mkrescue -o $@ bin/iso
+	rm -rf bin/iso
 
-runiso: kernel.iso
+runiso: bin/kernel.iso
 	qemu-system-i386 -cdrom $<
 
-runkernel: kernel.bin
+# Default target, works best
+runkernel: bin/kernel.bin
 	qemu-system-i386 -kernel $<
 
 clean:
 	rm $(objects)
-	rm kernel.bin
-	rm kernel.iso
+	rm bin/kernel.bin
+	rm bin/kernel.iso

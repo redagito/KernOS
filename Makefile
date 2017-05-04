@@ -1,11 +1,11 @@
 .DEFAULT_GOAL := runkernel
 
 # C++ flags
-CXXFLAGS = -m32 -fno-use-cxa-atexit -nostdlib -fno-builtin -fno-rtti -fno-exceptions -fno-leading-underscore
+CXXFLAGS = -m32 -ffreestanding -fno-use-cxa-atexit -nostdlib -fno-builtin -fno-rtti -fno-exceptions -fno-leading-underscore -std=c++11 -Wall -Wextra
 ASFLAGS = --32
 LDFLAGS = -melf_i386
 
-objects = obj/loader.o obj/kernel.o
+objects = obj/loader.o obj/kernel.o obj/vga.o obj/string.o obj/print.o
 
 # C++ sources
 obj/%.o: %.cpp
@@ -40,6 +40,6 @@ runkernel: bin/kernel.bin
 	qemu-system-i386 -kernel $<
 
 clean:
-	rm $(objects)
-	rm bin/kernel.bin
-	rm bin/kernel.iso
+	rm $(objects) -f
+	rm bin/kernel.bin -f
+	rm bin/kernel.iso -f

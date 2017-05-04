@@ -11,7 +11,9 @@
 .section .text
 
 # External kernel main entry point
-.extern KernelMain
+.extern kernel_main
+# External constructor for global objects
+.extern call_constructors
 
 # Global entry
 .global loader
@@ -19,9 +21,13 @@
 loader:
     # Set stack pointer
     mov $kernel_stack, %esp
+
+    # Call all constructors for global objects
+    call call_constructors
+
     push %eax
     push %ebx
-    call KernelMain
+    call kernel_main
 
 _stop:
     cli

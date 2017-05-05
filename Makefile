@@ -5,7 +5,7 @@ CXXFLAGS = -m32 -ffreestanding -fno-use-cxa-atexit -nostdlib -fno-builtin -fno-r
 ASFLAGS = --32
 LDFLAGS = -melf_i386
 
-objects = obj/loader.o obj/kernel.o obj/vga.o obj/string.o obj/print.o
+objects = obj/loader.o obj/kernel.o obj/vga.o obj/string.o obj/print.o obj/gdt.o
 
 # C++ sources
 obj/%.o: %.cpp

@@ -1,5 +1,6 @@
 #include "vga.h"
 #include "print.h"
+#include "gdt.h"
 
 using namespace kernos;
 
@@ -37,6 +38,9 @@ extern "C" void kernel_main(void* multi_boot, unsigned int magic_number)
     print_error("Hello World!");
     print_ok("Hello World!");
 	print_debug("Hello World!");
+
+	print_info("Initializing global descriptor table");
+	GlobalDescriptorTable gdt;
 
     while (true)
     {

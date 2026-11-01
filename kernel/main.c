@@ -12,6 +12,7 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/irq.h"
 #include "arch/x86_64/pit.h"
+#include "arch/x86_64/mem.h"
 #include "arch/x86_64/sched.h"
 
 static volatile u64 worker_reports;    /* lines printed across workers */
@@ -64,6 +65,9 @@ void kernel_main(void)
     serial_puts("CPU vendor: ");
     serial_puts(vendor);
     serial_puts("\n");
+
+    /* M3.1: the real physical memory map from the E820 boot ABI. */
+    memmap_boot_init();
 
     trap_init();
     serial_puts("traps online\n");

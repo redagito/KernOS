@@ -40,6 +40,12 @@
     .set PT_PD,          0x22000
     .set STACK_TOP,      0x78000   /* stack top; grows down */
 
+    /* E820 handoff (docs/disk-layout.md, boot ABI): u64 count at 0x600,
+       24-byte entries (base, len, type, res) from 0x608, max 32. */
+    .set E820_COUNT,     0x600
+    .set E820_DATA,      0x608
+    .set E820_MAX,       32
+
     .set SEL_CODE32, 0x08
     .set SEL_DATA,   0x10
     .set SEL_CODE64, 0x20
@@ -99,6 +105,45 @@ stage2_entry:
 
     movw $0x3f8, %dx                   /* phase 'U': A20 applied */
     movb $'U', %al
+    outb %al, %dx
+
+    /* ----- E820 memory map capture: the ONE remaining BIOS data call.
+       Lives at 0x600 (free per the low-memory table above the MBR), and
+       it must happen now: this is the last interrupt-driven BIOS call
+       of the whole boot - everything after masks the PICs and never
+       returns to real mode. Entry layout: u64 base, u64 len, u32 type,
+       u32 res (24 B stride, count in the u64 at 0x600). ----------- */
+    movl $E820_COUNT, %edi
+    movl $0, (%edi)                    /* count = 0 */
+    movl $0, 4(%edi)
+    xorl %ebx, %ebx                    /* continuation = 0 */
+e820_next:
+    movl E820_COUNT, %eax
+    leal (%eax,%eax,2), %ecx           /* count * 3 */
+    shll $3, %ecx                      /* ... * 8 = *24 bytes */
+    addl $E820_DATA, %ecx
+    movl %ecx, %edi                    /* ES:DI = next entry slot (ES=0) */
+    movl $24, %ecx                     /* I want the 24-byte ACPI layout */
+    movl $0xE820, %eax
+    movl $0x534D4150, %edx             /* 'SMAP' */
+    int $0x15
+    jc e820_done                       /* CF=1: last entry (or BIOS said no) */
+    cmpl $20, %ecx
+    jb stage2_fail                     /* handler returned garbage */
+    movl E820_COUNT, %eax
+    incl %eax
+    movl %eax, E820_COUNT
+    cmpl $E820_MAX, %eax
+    jae e820_done                      /* table full; tail is lossy */
+    testl %ebx, %ebx                   /* continuation 0 = final entry */
+    jz e820_done
+    jmp e820_next
+
+e820_done:
+    cmpl $0, E820_COUNT
+    jz stage2_fail
+    movl $0x3F8, %edx                  /* phase 'M': memory map captured */
+    movb $'M', %al
     outb %al, %dx
 
     /* ----- No more BIOS: silence both PICs and the drive IRQ line.

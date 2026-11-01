@@ -1,39 +1,18 @@
-M2.4: preemptive round-robin scheduler (kernel threads)
+M3.1: E820 capture in stage 2 + boot memory ABI + kernel map print
 
-- sched.c: fixed table (no malloc yet - M3), slot 0 = kernel_main on
-  the boot stack, up to 3 spawned threads on static 8 KiB stacks.
-  thread_spawn() fabricates a swtch context (r15..r13 zero, r12 =
-  entry, rbp, rbx = arg, ret = thread_entry); schedule() rounds
-  robin-runs from the tick handler.
-- swtch.s: xv6-style switch - save callee-saved regs, store rsp,
-  load to-rsp BY VALUE, restores, ret. Whole thread state lives on
-  its own stack (C frames + swtch context + when preempted, the IRQ
-  frame irq_common pushed), so resume unwinds naturally and iretq
-  re-enters the thread. thread_entry runs entry(arg) once, disabling
-  interrupts and parking if it ever returns.
-- pit_handler(): ticks++, EOI FIRST, then schedule(). The early EOI
-  was forced by a real wedge: a preemptive switch never returns
-  through irq_dispatch's tail, so IRQ0's ISR bit stayed set and the
-  PIC went silent forever. Late EOI from the resumed invocations is
-  ignored (no ISR bit set).
-- main.c: workers A/B print one report each ~every 25 wakes; main
-  waits for 6 reports then prints the totals.
+- stage2.s: int 15h E820 ('SMAP') capture while interrupts are still
+  on and the BIOS is still alive - deliberately the LAST BIOS data
+  call of the boot, made right after the A20 phase. Entries (24-byte
+  ACPI layout) land at 0x608 with a u64 count at 0x600, 32 max; empty
+  map or garbage ECX fails the boot at the 'X' phase. New phase
+  sensor 'M' (sequence is now 1ajULMPK).
+- docs/disk-layout.md: the handoff is now a normative ABI table
+  (count at 0x600, entries 0x608, 24 B stride); the pointer/struct
+  form moves into the image header when that lands.
+- mem.c: kernel reads the fixed addresses and prints every entry
+  over serial. The page allocator will consume exactly this table.
 
-Three bugs caught by the dump/trace pipeline, each a lesson:
-1. swtch deref bug: `movq (%rsi),%rsp` dereferenced the to-context
-   an extra time -> rsp=0, pops marched through SeaBIOS remnants
-   (f000:ff53 far-pointer garbage in the dump), ret into the stub
-   table -> #DF. New rsp is passed by value: `movq %rsi,%rsp`.
-2. Fresh threads enter with IF=0 (they come into being inside the
-   IRQ handler); without sti their first hlt sleeps forever. sti at
-   thread_entry; preempted threads re-enable via iretq.
-3. The EOI-before-switch wedge above.
-
-Evidence: sw#1..8 trace shows strict main->A->B rotation; alternating
-"A:/B: report" lines; "sched: reports=6 switches=237 ticks=237"
-printed by thread 0 from its own resumed stack. Mid-print preemption
-splits serial lines occasionally (seen in bring-up) - console lock
-deferred to the console layer.
-
-Also: swtch.s adds a .note.GNU-stack section; isr.s got one too,
-killing the long-standing isr.o linker warning.
+Evidence (QEMU, 128 MiB): 7 entries, textbook layout - low RAM at
+0x0-0x9FC00, ISA/BIOS holes reserved, the big usable run
+0x100000-0x7FE0000, EBDA + PCI hole + PCI-E config above. Kernel and
+scheduler untouched and green (reports=6 switches=237).

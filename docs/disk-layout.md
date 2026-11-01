@@ -50,6 +50,25 @@ mode), page tables, long mode, near jump.
 
 There is no bounce buffer: the kernel is loaded at its final address.
 
+## Boot ABI: E820 memory-map handoff (normative since stage 2)
+
+Stage 2 captures the E820 SMAP via `int 15h` — the last BIOS data call
+of the entire boot, made deliberately while interrupts are still on —
+into low RAM before leaving real mode:
+
+| Address        | Content                                                |
+|----------------|--------------------------------------------------------|
+| 0x0000-0x03FF  | BIOS IVT (dead, still mapped)                          |
+| 0x0500-0x05FF  | free                                                   |
+| **0x0600**     | **u64 entry count** (0 = capture failed)               |
+| **0x0608**     | E820 entries, 24 B each: u64 base, u64 len, u32 type, u32 pad, max 32 |
+| 0x0908-0x7BFF  | free                                                   |
+
+The kernel reads this at fixed addresses (`kernel/arch/x86_64/mem.c`).
+When the KernOS image header replaces the fixed kernel slot, the
+pointer/struct form of this ABI moves into it; until then this table
+plus docs is the single normative definition.
+
 After the 64-bit kernel starts it zeroes its own .bss (including a
 32 KiB stack at 0x101000-0x109000) and may reclaim everything below
 0x100000 except the page tables.

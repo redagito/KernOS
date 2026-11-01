@@ -15,6 +15,60 @@ author — recorded here so future sessions don't re-litigate them.
 | Language    | C++17 freestanding on gcc now; own assembler + compiler later (self-host) |
 | Honest skip | Wi-Fi, Bluetooth, GPU acceleration, suspend/lid — walls, documented below.|
 
+## Execution plan (near term, 2026-11-01)
+
+### Close M1
+1. **Regression gate**: `make test` — boots the image in QEMU for ~6 s
+   and asserts the exact COM1 byte sequence (`1ajULPK` + banner +
+   vendor line); nonzero exit on any deviation. Cheap insurance before
+   M2 churn makes boots flaky.
+2. **Real-hardware boot attempt.** Media reality: our stage 2 loads the
+   kernel off ports 0x1F0-0x1F7 — the target drive must be visible as
+   legacy IDE. Rank: (a) spare SATA drive with the controller set to
+   IDE/compatibility mode in firmware setup, (b) CF-IDE adapter,
+   (c) M1.5 escape hatch: add an INT 13h fallback for the *kernel*
+   load in stage 2 (documented impurity, one sensor names it),
+   (d) pull an early AHCI-only driver forward (that is M4 work).
+   A USB stick is the *wrong* first medium: it sits behind the USB host
+   controller, invisible at 0x1F0.
+   Likely first failures on metal: A20 (0x92), drive LBA28 quirks,
+   timing loops tuned to QEMU speed. Sensors report which phase died.
+3. **M1 exit criteria**: automatic test green in QEMU and kernel banner
+   verified on real hardware on both consoles.
+
+### M2 — interruptible, schedulable (order matters)
+1. **Exception safety net first**: 64-bit IDT over 21 exception
+   vectors with register/CR2/stack dumps over serial; own kernel GDT +
+   TSS skeleton. First, because after this every later bug prints a
+   dump instead of triple-faulting into a reboot loop.
+2. **Timer**: PIT channel 0 via IRQ0; unmask selectively (PIC is being
+   left as-is until the APIC is up); validate by sleeping in the
+   kernel loop.
+3. **PS/2 keyboard**: ports 0x60/0x64, IRQ1, scancode-set-1 decode →
+   key events; first real input.
+4. **Console v2**: hardware cursor via ports 0x3D4/0x3D5; serial getc
+   so the CLI loop can already be exercised.
+5. **MADT → APIC**: hand-parse ACPI MADT, bring up LAPIC + IOAPIC,
+   re-target the timer off the PIC.
+6. **Scheduler**: cooperative kernel threads first, then preemptive
+   round-robin on the timer IRQ; atomics/spinlocks infra before SMP.
+7. **SMP**: INIT-SIPI wake of the APs with a trampoline.
+   Exit criteria: preemption between ≥2 kernel threads, clean dumps,
+   keyboard interactivity — on real hardware.
+
+### M3 — memory manager
+0. **ABI v2 first**: stage 2 must collect the E820 memory map while it
+   is still in 32-bit mode and hand it to the kernel at a fixed ABI
+   slot; the physical allocator needs it and there is no way to get it
+   post-facto (the BIOS is gone by then).
+1. Physical page allocator on the E820 map, kernel virtual allocator,
+   kernel slab cache for small objects.
+2. 4 KiB fault-driven demand paging; move to a proper higher-half map,
+   retire the fixed boot slots.
+
+M4 (persistence), M5 (userland), M6 (GUI), M7 (network), M-Selfendgame
+as listed below.
+
 ## Milestones
 
 - **M1 — Boots on bare metal (complete pending real-hardware test)**

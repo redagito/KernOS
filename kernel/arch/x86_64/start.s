@@ -39,6 +39,8 @@ kernel_zombie:
 
     .section .bss
     .align 16
+    .global stack_bottom
+    .global stack_top
 stack_bottom:
     .skip 32768
 stack_top:

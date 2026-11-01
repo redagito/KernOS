@@ -1,0 +1,23 @@
+M2.1: exception safety net - GDT/TSS/IDT + dump-and-park
+
+From now on any kernel fault prints a full trap dump over serial
+instead of silently triple-faulting into a reboot loop (J that bug
+cost the M1 session a full forensic chase).
+
+- isr.s: 32 exception stub stamps (vectors 0-31); err-placeholder push
+  keeps one uniform frame shape; trap_common saves all 15 GPRs and
+  calls dump_trap(vec). Stub table in .rodata for IDT assembly.
+  Frame-order lesson (caught by self-test output): err-placeholder
+  needed ONLY where the CPU pushes no code; inverted the check at
+  first and the self-test's thrown-away "err" showed it instantly.
+- idt.c: kernel GDT mirrors stage-2 layout (same descriptor VALUES so
+  CS=0x20 etc. survive lgdt) + 64-bit TSS at 0x28 for IST1 (fault
+  stack for NMI/#DF/#MC); IDT filled from trap_stub_table.
+- trap.c: named vectors, register/CR0/CR3/CR4 dumps, CR2 for #PF;
+  park (cli/hlt) after dump - no recovery paths in M2.1.
+- start.s: stack_top/stack_bottom now .globl (idt.c needs rsp0).
+- main.c: trap_init() + deliberate int3 self-test as boot-time gate.
+
+QEMU evidence: "#BP breakpoint (vec 3, err 0)" with rip=0x1000c6
+(the int3 site), cs=0x20, rflags=0x46, rsp=0x108fe0 - all coherent;
+then park. Portal to every later milestone: bugs print dumps.

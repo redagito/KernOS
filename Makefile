@@ -36,7 +36,10 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/main.o \
 	$(OBJ)/vga.o \
 	$(OBJ)/serial.o \
-	$(OBJ)/cpu.o
+	$(OBJ)/cpu.o \
+	$(OBJ)/trap.o \
+	$(OBJ)/idt.o \
+	$(OBJ)/isr.o
 
 BOOT_OBJ  := $(OBJ)/mbr.o $(OBJ)/stage2.o
 HOST_PROG := $(BUILD)/mkimage
@@ -98,6 +101,18 @@ $(OBJ)/serial.o: kernel/arch/x86_64/serial.c
 $(OBJ)/cpu.o: kernel/arch/x86_64/cpu.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/trap.o: kernel/arch/x86_64/trap.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/idt.o: kernel/arch/x86_64/idt.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/isr.o: kernel/arch/x86_64/isr.s
+	@mkdir -p $(@D)
+	$(AS) -o $@ $<
 
 $(OBJ)/start64.o: kernel/arch/x86_64/start.s
 	@mkdir -p $(@D)

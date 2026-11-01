@@ -1,25 +1,22 @@
-M3.3: page-fault handler - first recovering exception + demand paging
+M3.4: kernel heap (kmalloc) + O(1) double-free guard
 
-- isr.s: exceptions gain a RETURNING path (trap_dispatch_common,
-  mirrors irq_common): push 15 regs, call exc_dispatch, then - only
-  when the handler fixed the fault - restore, drop vec+err, iretq and
-  the faulting instruction retries. Park policy (dump_trap) stays as
-  the fallback for anything unhandled or unmendable.
-- trap.c: per-vector exception registry (32 slots). exc_dispatch:
-  handler returns 1 = fixed (return to asm tail), else dump_trap.
-- page.c: demand pager as the first registered handler (#PF):
-  anonymous 4 KiB pages materialize on first touch inside a fixed
-  128 MiB region above the 1 GiB identity map. One fault fixes all it
-  can - empty PDPT slot gets a new PD page, empty PD slot gets a PT
-  page, empty PT slot gets a zeroed frame from pmm_alloc - then
-  flushes CR3. Present-bit faults and out-of-region addresses are
-  declined (dump-and-park), and a 2 MiB leaf inside the demand region
-  is treated as a conflict.
-- main.c self-test: touch BASE (PD+PT+page), BASE+8192 (page only,
-  same block), BASE+4MiB (PD exists, PT+page); values written before
-  faulting are read back after the retry.
+- pmm.c: the O(n) double-free scan retires. An in-stack presence
+  bitmap (one bit per tracked frame, 4 KiB of .bss) guards pmm_free:
+  bit set = the frame sits on the free stack already -> refused.
+  Index math is direct since tracked frames are frame-contiguous from
+  kernel_limit. alloc clears the bit, free sets it.
+- heap.c: bump allocator (16-byte aligned) over the upper half of the
+  demand region (DEMAND_BASE + 64 MiB .. +128 MiB, so self-test page
+  tables and heap never share PT pages). kmalloc hands out virtual
+  addresses WITHOUT eager mapping: pages materialize through the M3.3
+  #PF demand pager on first touch - kernel heap and pager are one
+  system now. kfree is a documented no-op until userland malloc
+  forces a real free-list.
+- main.c self-test: 100-byte and 70000-byte (18-page) allocs,
+  0xA5/0x5A pattern fills verified byte-for-byte, kmalloc(0) == NULL,
+  inter-pointer spacing checked.
 
-Evidence: "pf: ok faults=3 pd=1 pt=2 pages=3" - faults exactly as
-predicted (3), both 2 MiB blocks sharing one PD (pd=1), a PT per
-block (pt=2), three anonymous frames (pages=3), read-backs clean,
-scheduler demo green after.
+Evidence: "heap: ok h1=0x44000000 h2=0x44000070" (base exactly
+demand-base + 64 MiB, gap exactly the 16-round of 100); "pmm:
+selftest ok" still green with the bitmap guard (double free refused);
+demand pager, allocator and scheduler all green after.

@@ -15,6 +15,7 @@
 #include "arch/x86_64/mem.h"
 #include "arch/x86_64/pmm.h"
 #include "arch/x86_64/page.h"
+#include "arch/x86_64/heap.h"
 #include "arch/x86_64/sched.h"
 
 static volatile u64 worker_reports;    /* lines printed across workers */
@@ -134,6 +135,34 @@ void kernel_main(void)
             serial_puts("\n");
         } else {
             serial_puts("pf: selftest FAILED (readback)\n");
+        }
+    }
+
+    /* M3.4 kernel heap self-test: bump allocations across fresh pages,
+       pattern-filled end to end through the demand pager. */
+    {
+        void *h1 = kmalloc(100);
+        void *h2 = kmalloc(70000);        /* crosses ~17 pages */
+        void *h3 = kmalloc(0);            /* NULL by contract */
+
+        if (h1 && h2 && h3 == 0) {
+            u8 *p1 = h1, *p2 = h2;
+            for (int i = 0; i < 100; ++i)   p1[i] = 0xA5;
+            u8 sentinel = 1;
+            for (u64 i = 0; i < 70000; ++i) { p2[i] = 0x5A; sentinel &= (p2[i] == 0x5A); }
+
+            if (p1[0] == 0xA5 && p1[99] == 0xA5 && sentinel &&
+                ((u64)h2 - (u64)h1) >= 112) {
+                serial_puts("heap: ok h1=");
+                serial_puts_hex((u64)h1);
+                serial_puts(" h2=");
+                serial_puts_hex((u64)h2);
+                serial_puts("\n");
+            } else {
+                serial_puts("heap: selftest FAILED (pattern)\n");
+            }
+        } else {
+            serial_puts("heap: selftest FAILED (alloc)\n");
         }
     }
 

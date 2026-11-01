@@ -38,7 +38,7 @@ static void zero_frame(u64 pa)
 }
 
 /* Map va (4 KiB page granularity) into the demand region. 0 = ok. */
-static int page_demand(u64 va)
+int page_demand_map(u64 va)
 {
     if (va < PAGE_DEMAND_BASE || va >= PAGE_DEMAND_BASE + PAGE_DEMAND_SPAN)
         return -1;
@@ -94,7 +94,7 @@ static int pf_handler(struct trapframe *tf)
     u64 va;
     __asm__ volatile("mov %%cr2, %0" : "=r"(va));
 
-    if (page_demand(va & ~0xFFFULL) < 0)
+    if (page_demand_map(va & ~0xFFFULL) < 0)
         return 0;
 
     stat_faults++;

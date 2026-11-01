@@ -16,4 +16,9 @@
 
 void pf_init(void);   /* register the #PF handler */
 
+/* Map a 4 KiB page on demand at va (any pa from the pmm). The #PF
+   handler runs this per fault; kmalloc uses it while bumping into
+   fresh heap pages. 0 = ok, -1 = refused (region/pmm exhaustion). */
+int  page_demand_map(u64 va);
+
 void pf_stats(u64 *faults, u64 *pd_pages, u64 *pt_pages, u64 *data_pages);

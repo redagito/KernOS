@@ -16,6 +16,11 @@ static u64 free_stack[PMM_MAX_FRAMES];
 static u64 top;                     /* == free frame count */
 static u64 kernel_limit;            /* frames below this are boot/kernel */
 
+/* In-stack marker: bit = free_stack currently holds that frame. Turns
+   double-free detection O(1); the tracked range begins at
+   kernel_limit and is frame-contiguous, so index math is direct. */
+static u32 in_stack[PMM_MAX_FRAMES / 32];
+
 /* Linker symbols (kernel.ld) */
 extern u8 __bss_end[];
 
@@ -57,7 +62,10 @@ void pmm_init(void)
 u64 pmm_alloc(void)
 {
     if (top == 0) return 0;
-    return free_stack[--top];
+    u64 pa = free_stack[--top];
+    u64 idx = (pa - kernel_limit) / FRAME_SIZE;
+    in_stack[idx / 32] &= ~(u32)(1u << (idx % 32));
+    return pa;
 }
 
 void pmm_free(u64 pa)
@@ -69,16 +77,14 @@ void pmm_free(u64 pa)
         return;
     }
     if (top == PMM_MAX_FRAMES) return;           /* cannot happen: balanced */
-    /* Uniqueness guard: honest O(n) scan; with the coming M3.4 heap+
-       bitmaps this becomes O(1) via a marker bitmap. */
-    for (u64 i = 0; i < top; ++i) {
-        if (free_stack[i] == pa) {
-            serial_puts("pmm: double free ");
-            serial_puts_hex(pa);
-            serial_puts("\n");
-            return;
-        }
+    u64 idx = (pa - kernel_limit) / FRAME_SIZE;
+    if (in_stack[idx / 32] & (1u << (idx % 32))) {
+        serial_puts("pmm: double free ");
+        serial_puts_hex(pa);
+        serial_puts("\n");
+        return;
     }
+    in_stack[idx / 32] |= 1u << (idx % 32);
     free_stack[top++] = pa;
 }
 

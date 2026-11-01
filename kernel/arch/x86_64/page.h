@@ -21,4 +21,8 @@ void pf_init(void);   /* register the #PF handler */
    fresh heap pages. 0 = ok, -1 = refused (region/pmm exhaustion). */
 int  page_demand_map(u64 va);
 
+/* Explicit mapping of a known physical range into the demand region
+   (device MMIO etc). No zeroing, no fault - fails if entries exist. */
+int  page_map_at(u64 va, u64 pa, u32 npages);
+
 void pf_stats(u64 *faults, u64 *pd_pages, u64 *pt_pages, u64 *data_pages);

@@ -23,3 +23,7 @@ const struct pci_dev *pci_dev_get(int i);
 
 /* First device of a storage class (base 0x01), or NULL. */
 const struct pci_dev *pci_find_class(u32 base_class);
+
+/* Type-1 config space read/write (the command reg lives at offset 4). */
+u32  pci_cfg32_read(u8 bus, u8 dev, u8 fn, u8 off);
+void pci_cfg32_write(u8 bus, u8 dev, u8 fn, u8 off, u32 val);

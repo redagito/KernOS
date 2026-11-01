@@ -42,6 +42,17 @@ static u32 cfg32(u8 bus, u8 dev, u8 fn, u8 off)
     return inl_addr(0xCFC);
 }
 
+u32 pci_cfg32_read(u8 bus, u8 dev, u8 fn, u8 off) { return cfg32(bus, dev, fn, off); }
+
+void pci_cfg32_write(u8 bus, u8 dev, u8 fn, u8 off, u32 val)
+{
+    u32 a = 0x80000000u
+          | ((u32)bus << 16) | ((u32)(dev & 0x1F) << 11)
+          | ((u32)(fn & 7) << 8) | (u32)(off & 0xFC);
+    outl_addr(0xCF8, a);
+    outl_addr(0xCFC, val);
+}
+
 static u16 cfg16(u8 bus, u8 dev, u8 fn, u8 off)
 {
     return (u16)((cfg32(bus, dev, fn, off & 0xFC) >> ((off & 2) * 8)) & 0xFFFF);

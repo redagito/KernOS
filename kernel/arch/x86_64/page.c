@@ -37,12 +37,10 @@ static void zero_frame(u64 pa)
         p[i] = 0;
 }
 
-/* Map va (4 KiB page granularity) into the demand region. 0 = ok. */
-int page_demand_map(u64 va)
+/* Shared walk: create/zero missing PD and PT pages for va; returns the
+   PT holding va's leaf entry. 0 = ok. */
+static int ensure_levels(u64 va, u64 **pt_out, u64 *leaf_idx_out)
 {
-    if (va < PAGE_DEMAND_BASE || va >= PAGE_DEMAND_BASE + PAGE_DEMAND_SPAN)
-        return -1;
-
     u64 i4 = (va >> 39) & 0x1FF;
     u64 i3 = (va >> 30) & 0x1FF;
     u64 i2 = (va >> 21) & 0x1FF;
@@ -72,7 +70,21 @@ int page_demand_map(u64 va)
         stat_pt++;
     }
 
-    u64 *pt = (u64 *)(pd[i2] & ~0xFFFULL);
+    *pt_out = &((u64 *)(pd[i2] & ~0xFFFULL))[0];
+    *leaf_idx_out = i1;
+    return 0;
+}
+
+/* Map va (4 KiB page granularity) into the demand region. 0 = ok. */
+int page_demand_map(u64 va)
+{
+    if (va < PAGE_DEMAND_BASE || va >= PAGE_DEMAND_BASE + PAGE_DEMAND_SPAN)
+        return -1;
+
+    u64 *pt; u64 i1;
+    if (ensure_levels(va, &pt, &i1) < 0)
+        return -1;
+
     if (pt[i1] & 1)
         return -1;                       /* already present: not a pure miss */
 
@@ -82,6 +94,24 @@ int page_demand_map(u64 va)
     pt[i1] = pa | 0x03;
     stat_data++;
 
+    cr3_flush();
+    return 0;
+}
+
+/* Fixed-PA mapping into the demand region (device MMIO, buffers).
+   One CR3 flush at the end. Does NOT zero the target (it is not RAM). */
+int page_map_at(u64 va, u64 pa, u32 npages)
+{
+    for (u32 n = 0; n < npages; ++n) {
+        u64 *pt; u64 i1;
+        if (ensure_levels(va, &pt, &i1) < 0)
+            return -1;
+        if (pt[i1] & 1)
+            return -1;                   /* overwrite refusal */
+        pt[i1] = (pa & ~0xFFFULL) | 0x03;
+        va += FRAME_SIZE;
+        pa += FRAME_SIZE;
+    }
     cr3_flush();
     return 0;
 }

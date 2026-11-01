@@ -17,6 +17,7 @@
 #include "arch/x86_64/page.h"
 #include "arch/x86_64/heap.h"
 #include "arch/x86_64/pci.h"
+#include "arch/x86_64/ahci.h"
 #include "arch/x86_64/sched.h"
 
 static volatile u64 worker_reports;    /* lines printed across workers */
@@ -169,6 +170,38 @@ void kernel_main(void)
 
     /* M4.1: PCI walk — the storage estate the AHCI driver will own. */
     pci_init();
+
+    /* M4.2: AHCI bring-up + DMA round-trip against the test disk:
+       LBA 100 carries the boot harness marker 'KERNOSDISK\x01\x02\x03';
+       LBA 200 gets written and read back. */
+    ahci_init();
+    {
+        static const u8 marker13[13] = { 'K','E','R','N','O','S','D','I','S','K', 1, 2, 3 };
+        static const u8 wrote13[13]  = { 'K','E','R','N','O','S','W','R','O','T','E', 4, 5 };
+
+        u64 buf = pmm_alloc();
+        if (buf && ahci_read(100, (void *)buf, 1) == 0) {
+            volatile u8 *b = (volatile u8 *)buf;
+            int ok = 1;
+            for (int i = 0; i < 13; ++i) if (b[i] != marker13[i]) ok = 0;
+            serial_puts(ok ? "ahci: lba100 marker matches\n"
+                           : "ahci: lba100 marker MISMATCH\n");
+
+            for (int i = 0; i < 13; ++i) ((volatile u8 *)buf)[i] = wrote13[i];
+            if (ahci_write(200, (void *)buf, 1) == 0 &&
+                ahci_read(200, (void *)buf, 1) == 0) {
+                int ok2 = 1;
+                for (int i = 0; i < 13; ++i) if (((volatile u8 *)buf)[i] != wrote13[i]) ok2 = 0;
+                serial_puts(ok2 ? "ahci: lba200 write-verify ok\n"
+                                : "ahci: lba200 write-verify MISMATCH\n");
+            } else {
+                serial_puts("ahci: lba200 write/read op failed\n");
+            }
+        } else {
+            serial_puts("ahci: lba100 read failed\n");
+        }
+        if (buf) pmm_free(buf);
+    }
 
     irq_init();
     sched_init();

@@ -53,6 +53,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/page.o \
 	$(OBJ)/heap.o \
 	$(OBJ)/pci.o \
+	$(OBJ)/ahci.o \
 	$(OBJ)/swtch.o \
 	$(OBJ)/isr.o
 
@@ -158,6 +159,10 @@ $(OBJ)/heap.o: kernel/arch/x86_64/heap.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/pci.o: kernel/arch/x86_64/pci.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/ahci.o: kernel/arch/x86_64/ahci.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

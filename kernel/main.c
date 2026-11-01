@@ -18,9 +18,67 @@
 #include "arch/x86_64/heap.h"
 #include "arch/x86_64/pci.h"
 #include "arch/x86_64/ahci.h"
+#include "fat32.h"
+#include <kernel/bench.h>
+#include <kernel/block.h>
 #include "arch/x86_64/sched.h"
 
 static volatile u64 worker_reports;    /* lines printed across workers */
+
+/* M4.3: AHCI behind the portable block layer - the seam the host unit
+   tests cross with the stdio backend and the boot gate crosses with
+   real DMA (identical parser on both sides).
+
+   DMA staging: AHCI requires 4096-aligned, frame-backed buffers, while
+   the portable filesystem parses out of its own plain static arrays.
+   The GLUE owns that transport difference: it bounces every sector
+   through one pmm frame. The host backend has no such constraint -
+   exactly the asymmetry the block seam is there to hide. */
+static u64 blk_stage;                /* pmm frame, 0x1000-aligned */
+
+static int ahci_blk_read_fn(void *ctx, u64 lba, void *buf, u32 n)
+{
+    (void)ctx;
+    if (!blk_stage)
+        return -1;
+    u8 *dst = (u8 *)buf;
+    for (u32 s = 0; s < n; ++s) {
+        if (ahci_read(lba + s, (void *)blk_stage, 1) != 0)
+            return -1;
+        const volatile u8 *st = (const volatile u8 *)blk_stage;
+        for (u32 i = 0; i < 512; ++i)
+            dst[s * 512 + i] = st[i];
+    }
+    return 0;
+}
+
+static int ahci_blk_write_fn(void *ctx, u64 lba, const void *buf, u32 n)
+{
+    (void)ctx;
+    if (!blk_stage)
+        return -1;
+    const u8 *src = (const u8 *)buf;
+    for (u32 s = 0; s < n; ++s) {
+        volatile u8 *st = (volatile u8 *)blk_stage;
+        for (u32 i = 0; i < 512; ++i)
+            st[i] = src[s * 512 + i];
+        if (ahci_write(lba + s, (void *)blk_stage, 1) != 0)
+            return -1;
+    }
+    return 0;
+}
+
+static u64 ahci_blk_sectors_fn(void *ctx)
+{
+    (void)ctx;
+    return ahci_sector_count();
+}
+
+static const struct block_ops ahci_blk_ops = {
+    ahci_blk_read_fn, ahci_blk_write_fn, ahci_blk_sectors_fn
+};
+
+static const struct block_dev ahci_blk = { &ahci_blk_ops, 0 };
 
 static void putdec(u64 v)
 {
@@ -171,36 +229,96 @@ void kernel_main(void)
     /* M4.1: PCI walk — the storage estate the AHCI driver will own. */
     pci_init();
 
-    /* M4.2: AHCI bring-up + DMA round-trip against the test disk:
-       LBA 100 carries the boot harness marker 'KERNOSDISK\x01\x02\x03';
-       LBA 200 gets written and read back. */
+    /* M4.2: AHCI bring-up + DMA round-trip against the bench disk.
+       The bench disk is the FAT32 fixture tools/mkfat32 plants; the
+       raw markers sit in unallocated DATA-area LBAs from bench.h so
+       they never collide with file system structures. */
     ahci_init();
     {
-        static const u8 marker13[13] = { 'K','E','R','N','O','S','D','I','S','K', 1, 2, 3 };
-        static const u8 wrote13[13]  = { 'K','E','R','N','O','S','W','R','O','T','E', 4, 5 };
+        static const u8 marker13[BENCH_MARKER_LEN] = { 'K','E','R','N','O','S','D','I','S','K', 1, 2, 3 };
+        static const u8 wrote13[BENCH_MARKER_LEN]  = { 'K','E','R','N','O','S','W','R','O','T','E', 4, 5 };
 
         u64 buf = pmm_alloc();
-        if (buf && ahci_read(100, (void *)buf, 1) == 0) {
+        if (buf && ahci_read(BENCH_MARKER_LBA, (void *)buf, 1) == 0) {
             volatile u8 *b = (volatile u8 *)buf;
             int ok = 1;
-            for (int i = 0; i < 13; ++i) if (b[i] != marker13[i]) ok = 0;
-            serial_puts(ok ? "ahci: lba100 marker matches\n"
-                           : "ahci: lba100 marker MISMATCH\n");
+            for (u32 i = 0; i < BENCH_MARKER_LEN; ++i) if (b[i] != marker13[i]) ok = 0;
+            serial_puts(ok ? "ahci: disk marker matches\n"
+                           : "ahci: disk marker MISMATCH\n");
 
-            for (int i = 0; i < 13; ++i) ((volatile u8 *)buf)[i] = wrote13[i];
-            if (ahci_write(200, (void *)buf, 1) == 0 &&
-                ahci_read(200, (void *)buf, 1) == 0) {
+            for (u32 i = 0; i < BENCH_MARKER_LEN; ++i) ((volatile u8 *)buf)[i] = wrote13[i];
+            if (ahci_write(BENCH_WRITE_LBA, (void *)buf, 1) == 0 &&
+                ahci_read(BENCH_WRITE_LBA, (void *)buf, 1) == 0) {
                 int ok2 = 1;
-                for (int i = 0; i < 13; ++i) if (((volatile u8 *)buf)[i] != wrote13[i]) ok2 = 0;
-                serial_puts(ok2 ? "ahci: lba200 write-verify ok\n"
-                                : "ahci: lba200 write-verify MISMATCH\n");
+                for (u32 i = 0; i < BENCH_MARKER_LEN; ++i) if (((volatile u8 *)buf)[i] != wrote13[i]) ok2 = 0;
+                serial_puts(ok2 ? "ahci: disk write-verify ok\n"
+                                : "ahci: disk write-verify MISMATCH\n");
             } else {
-                serial_puts("ahci: lba200 write/read op failed\n");
+                serial_puts("ahci: disk write/read op failed\n");
             }
         } else {
-            serial_puts("ahci: lba100 read failed\n");
+            serial_puts("ahci: disk marker read failed\n");
         }
         if (buf) pmm_free(buf);
+    }
+
+    /* M4.3: FAT32 over the block layer. Same fixture constants as
+       tools/mkfat32 and the host unit tests (include/kernel/bench.h) -
+       the parser is exercised identically at both layers. */
+    {
+        blk_stage = pmm_alloc();
+        if (fat_mount(&ahci_blk) == 0) {
+            struct fat_info fi;
+            fat_stats(&fi);
+            serial_puts("fat: mount ok data=");
+            serial_puts_hex(fi.data_start);
+            serial_puts(" root=");
+            serial_puts_hex(fi.root_clus);
+            serial_puts(" clusters=");
+            serial_puts_hex(fi.total_clusters);
+            serial_puts("\n");
+
+            static u8 fatbuf[512];
+            u32 size = (u32)fat_read_file(BENCH_FILE, fatbuf, sizeof fatbuf);
+
+            if (size == sizeof(BENCH_SEED) - 1) {
+                u32 eq = 1;
+                for (u32 i = 0; i < size; ++i)
+                    if (fatbuf[i] != (u8)BENCH_SEED[i]) eq = 0;
+
+                serial_puts(eq ? "fat: seed matches: " : "fat: seed MISMATCH: ");
+                for (u32 i = 0; i < size; ++i) {
+                    char c = (char)fatbuf[i];
+                    serial_putc(c == '\n' ? ' ' : c);
+                }
+                serial_puts("\n");
+
+                if (eq) {
+                    static u8 fatwb[512];
+                    u32 wr = sizeof(BENCH_WRITE) - 1;
+                    for (u32 i = 0; i < size; ++i)
+                        fatwb[i] = (i < wr) ? (u8)BENCH_WRITE[i] : ' ';
+
+                    if (fat_write_file(BENCH_FILE, fatwb, size) == (int)size) {
+                        u32 back = (u32)fat_read_file(BENCH_FILE, fatbuf, sizeof fatbuf);
+                        u32 eq2 = (back == size);
+                        if (eq2)
+                            for (u32 i = 0; i < size; ++i)
+                                if (fatbuf[i] != fatwb[i]) eq2 = 0;
+                        serial_puts(eq2 ? "fat: write-back verified\n"
+                                        : "fat: write-back MISMATCH\n");
+                    } else {
+                        serial_puts("fat: write op refused\n");
+                    }
+                }
+            } else {
+                serial_puts("fat: seed read FAILED (size=");
+                serial_puts_hex(size);
+                serial_puts(")\n");
+            }
+        } else {
+            serial_puts("fat: mount FAILED\n");
+        }
     }
 
     irq_init();

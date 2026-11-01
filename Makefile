@@ -54,6 +54,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/heap.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
+	$(OBJ)/fat32.o \
 	$(OBJ)/swtch.o \
 	$(OBJ)/isr.o
 
@@ -61,7 +62,13 @@ BOOT_OBJ  := $(OBJ)/mbr.o $(OBJ)/stage2.o
 HOST_PROG := $(BUILD)/mkimage
 
 DEFAULT_GOAL := all
-.PHONY: all image run clean
+
+# Fixture images are PHONY on purpose: both are MUTATED by their
+# consumers (hosttest writes KERNOS.TXT; QEMU write-gates write raw
+# LBAs + the FAT file). Regenerate deterministically each time so the
+# suites and boot gates never read a previous run's residue.
+.PHONY: all image run clean benchdisk hosttest \
+	$(BUILD)/ahcidisk.img $(BUILD)/testdisk.img
 
 all: image
 
@@ -98,6 +105,34 @@ $(BUILD)/kernos.img: $(HOST_PROG) $(BUILD)/mbr.bin $(BUILD)/stage2.bin $(BUILD)/
 $(HOST_PROG): tools/mkimage.c
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -o $@ $<
+
+# -----
+# Test harness: deterministic fixture + host unit tests over the very
+# same portable modules the kernel boots. mkfat32 self-checks its gear
+# layout (FAT32 validity, marker collisions) before writing anything.
+# -----
+$(BUILD)/mkfat32: tools/mkfat32.c include/kernel/bench.h
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -o $@ $<
+
+.PHONY: benchdisk hosttest
+benchdisk: $(BUILD)/ahcidisk.img
+
+$(BUILD)/ahcidisk.img: $(BUILD)/mkfat32
+	$(BUILD)/mkfat32 $(BUILD)/ahcidisk.img
+
+$(BUILD)/testdisk.img: $(BUILD)/mkfat32
+	$(BUILD)/mkfat32 $(BUILD)/testdisk.img
+
+$(BUILD)/test_fat32: tests/test_fat32.c tests/blk_host.c kernel/fat32.c \
+		include/kernel/block.h kernel/fat32.h include/kernel/bench.h \
+		include/kernel/types.h
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -o $@ \
+		tests/test_fat32.c tests/blk_host.c kernel/fat32.c
+
+hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32
+	$(BUILD)/test_fat32 $(BUILD)/testdisk.img
 
 # -----
 # Compilation
@@ -163,6 +198,10 @@ $(OBJ)/pci.o: kernel/arch/x86_64/pci.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/ahci.o: kernel/arch/x86_64/ahci.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/fat32.o: kernel/fat32.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

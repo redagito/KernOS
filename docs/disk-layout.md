@@ -72,3 +72,65 @@ plus docs is the single normative definition.
 After the 64-bit kernel starts it zeroes its own .bss (including a
 32 KiB stack at 0x101000-0x109000) and may reclaim everything below
 0x100000 except the page tables.
+
+## The bench disk (second drive, M4.x gates) — normative fixture
+
+The boot disk above never carries file-system state; storage gates run
+against a **second drive** attached to the emulated AHCI HBA
+(QEMU: `-device ich9-ahci,id=ahci -device ide-hd,drive=hd0,bus=ahci.0`).
+It is planted by `tools/mkfat32` — deterministic, no clock, no
+randomness — and every constant lives in **`include/kernel/bench.h`**,
+the single source of truth shared by three consumers that cannot drift
+apart: `tools/mkfat32.c` (planter), `kernel/main.c` (boot gates), and
+`tests/test_fat32.c` (host unit suite).
+
+`mkfat32` refuses to plant anything that violates its own invariants
+(FAT32-valid cluster count, no marker/file collisions), so the fixture
+self-audits at build time.
+
+| Property         | Value                                            |
+|------------------|--------------------------------------------------|
+| Capacity         | 128 MiB = 262144 × 512 B                          |
+| Geometry         | bytes/sector 512, spc 1, reserved 32, 2 FATs      |
+| FAT size         | 2017 sectors (fixpoint of 4 × (clusters + 2))     |
+| Data start       | LBA 4066 = cluster 2                              |
+| Clusters         | 258078 ( > 65524: genuinely FAT32, not FAT16)     |
+| Root directory   | cluster 2                                         |
+| FSInfo/backup    | sector 1 / sector 6 (secondary structures planted)|
+
+Root directory order is a deliberate parse obstacle course, in order:
+
+| Slot | Entry                                            |
+|------|--------------------------------------------------|
+| 0..1 | LFN pair for VERYLONGNAME.TXT (tail first, then head, checksum, `0xFFFF` padding + `0x0000` terminator) |
+| 2    | `VERYLO~1TXT` short entry of the LFN pair        |
+| 3    | `0xE5` deleted-entry decoy (must be skipped)     |
+| 4    | `KERNOS.TXT` (short 8.3)                         |
+| 5+   | `0x00` terminator                                |
+
+File bodies: cluster 3 = `BENCH_SEED` (KERNOS.TXT, 47 B), cluster 4 =
+`BENCH_LONG_BODY` (VERYLONGNAME.TXT, 24 B). Raw AHCI markers sit in the
+**unallocated data area**, asserted collision-free by the planter:
+LBA 4076 (`BENCH_MARKER_LBA`) carries `KERNOSDISK\1\2\3` (read-only
+match), LBA 4084 (`BENCH_WRITE_LBA`) is the write-verify target.
+
+M4.3 FAT32 behavior contract (what the gates assert): mount validates a
+real FAT32 BPB (spc power of two, cluster count in the FAT32 range);
+lookup is 8.3 short-name, case-insensitive; LFN and deleted entries are
+skipped (so the long name itself resolves to `-1` — intentional scope);
+reads walk the cluster chain; writes overwrite in place with
+`len <= size` only (no extension until the M5 userland needs it).
+
+Because the boot gates and the host suite both **mutate** the fixture
+(they write to it), both fixture images (`build/ahcidisk.img`,
+`build/testdisk.img`) are regenerated on every `make benchdisk` /
+`make hosttest` run — they are `.PHONY` so stale residue can never leak
+into a pass. The full M4.3 gate evidence reads:
+
+```
+ahci: disk marker matches
+ahci: disk write-verify ok
+fat: mount ok data=0x0fe2 root=0x2 clusters=0x3f01e
+fat: seed matches: KernOS M4.3 seed line planted by tools/mkfat32
+fat: write-back verified
+```

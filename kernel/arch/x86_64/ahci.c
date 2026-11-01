@@ -257,6 +257,11 @@ int ahci_write(u64 lba, const void *dma_buf, u32 sectors)
     return issue(0x35, lba, (u16)sectors, (u64)dma_buf, 1);
 }
 
+u64 ahci_sector_count(void)
+{
+    return active_port < 0 ? 0 : sectors_total;
+}
+
 void ahci_info(void)
 {
     serial_puts("ahci: capacity=");

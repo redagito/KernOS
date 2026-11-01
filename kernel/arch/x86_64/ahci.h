@@ -24,4 +24,7 @@ void ahci_init(void);
 int  ahci_read(u64 lba, void *dma_buf, u32 sectors);
 int  ahci_write(u64 lba, const void *dma_buf, u32 sectors);
 
+/* device capacity from the last successful IDENTIFY (0 = not up) */
+u64  ahci_sector_count(void);
+
 void ahci_info(void);    /* one-line capacity/serial over serial     */

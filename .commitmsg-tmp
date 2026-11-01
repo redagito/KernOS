@@ -1,22 +1,23 @@
-M3.4: kernel heap (kmalloc) + O(1) double-free guard
+M4.1: PCI enumeration - the storage estate on the bus
 
-- pmm.c: the O(n) double-free scan retires. An in-stack presence
-  bitmap (one bit per tracked frame, 4 KiB of .bss) guards pmm_free:
-  bit set = the frame sits on the free stack already -> refused.
-  Index math is direct since tracked frames are frame-contiguous from
-  kernel_limit. alloc clears the bit, free sets it.
-- heap.c: bump allocator (16-byte aligned) over the upper half of the
-  demand region (DEMAND_BASE + 64 MiB .. +128 MiB, so self-test page
-  tables and heap never share PT pages). kmalloc hands out virtual
-  addresses WITHOUT eager mapping: pages materialize through the M3.3
-  #PF demand pager on first touch - kernel heap and pager are one
-  system now. kfree is a documented no-op until userland malloc
-  forces a real free-list.
-- main.c self-test: 100-byte and 70000-byte (18-page) allocs,
-  0xA5/0x5A pattern fills verified byte-for-byte, kmalloc(0) == NULL,
-  inter-pointer spacing checked.
+- pci.c: type-1 config access (0xCF8/0xCFC), bus-0 walk with the
+  standard multifunction rule (probe fn 1..7 only when hdr_type bit 7
+  says so), fixed device table (vid/did/class/hdr/irq pin+line/6 BARs)
+  that M4.2's AHCI driver will search by class. Width-limited hex
+  printer for VID:DID readability; storage-class devices print their
+  BARs.
+- main.c: pci_init() after the heap test, before interrupts.
+- Test bench update: future M4 boots add '-device ich9-ahci,id=ahci'
+  to put a real AHCI HBA on the piix3 bus (the boot drive stays
+  if=ide, so the boot chain is untouched).
 
-Evidence: "heap: ok h1=0x44000000 h2=0x44000070" (base exactly
-demand-base + 64 MiB, gap exactly the 16-round of 100); "pmm:
-selftest ok" still green with the bitmap guard (double free refused);
-demand pager, allocator and scheduler all green after.
+Evidence (QEMU): 7 devices, all textbook for a pc machine:
+  00:00.0 host bridge (8086:1237), 00:01.0 PIIX3 ISA (0601),
+  00:01.1 IDE (010180, BAR4=0xC060 port-IO bus-master regs),
+  00:01.3 PM (0680, irq 9), 00:02.0 VGA (1234:1111),
+  00:03.0 e1000 (0200), and the target -
+  00:04.0 8086:2922 class 010601 = ICH9 AHCI, BAR4=0xC041 (I/O idx),
+  BAR5=0xFEBF1000 (MMIO HBA; above the 1 GiB identity map - M4.2 must
+  map it into the demand region via explicit page tables).
+Multifunction probing proved itself: PIIX3's fn .1/.3 exist only
+because the walk honors the hdr_type bit.

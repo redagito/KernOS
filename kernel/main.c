@@ -16,6 +16,7 @@
 #include "arch/x86_64/pmm.h"
 #include "arch/x86_64/page.h"
 #include "arch/x86_64/heap.h"
+#include "arch/x86_64/pci.h"
 #include "arch/x86_64/sched.h"
 
 static volatile u64 worker_reports;    /* lines printed across workers */
@@ -165,6 +166,9 @@ void kernel_main(void)
             serial_puts("heap: selftest FAILED (alloc)\n");
         }
     }
+
+    /* M4.1: PCI walk — the storage estate the AHCI driver will own. */
+    pci_init();
 
     irq_init();
     sched_init();

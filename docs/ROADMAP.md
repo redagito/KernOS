@@ -1,15 +1,28 @@
 # KernOS roadmap
 
-An operating system for real hardware, written from its specs, with no
-third-party code. Decisions made 2026-11-01, in discussion with the
-author — recorded here so future sessions don't re-litigate them.
+An operating system for real hardware, written from its specs. Our
+code — kernel, bootloader, libc, drivers, userspace — is the product;
+open-source dev tools are welcome under the licensing policy below,
+and the endgoal is for the OS to develop itself further.
+
+Decisions made 2026-11-01, in discussion with the author — recorded
+here so future sessions don't re-litigate them. (Licensing and format
+principles amended 2026-11-01, same day, after dogma friction.)
 
 ## Locked decisions
 
 | Area        | Decision                                                                  |
 |-------------|---------------------------------------------------------------------------|
 | Arch        | x86-64                                                                    |
-| Boot        | Own MBR → stage 2 → long mode. BIOS supplies the boot vector only (16-bit start); from stage 1's first instruction onward the chain drives the hardware directly (ATA PIO). No GRUB. No foreign code. |
+| Boot        | Own MBR → stage 2 → long mode. BIOS supplies the boot vector only (16-bit start); from stage 1's first instruction onward the chain drives the hardware directly (ATA PIO). No GRUB, no foreign bootloader (other third-party code is governed by the Licensing row). |
+| Licensing   | (Amended 2026-11-01) Build our own OS — kernel, bootloader, libc,   |
+|             | drivers, userspace. Open-source dev tools are allowed; a tool is    |
+|             | judged by what it taints. Tools outside the artifact (gcc today):   |
+|             | any OSI license, nothing of theirs enters our repo. Code that       |
+|             | ships in the image (KCC/TinyCC fork from M5.5): permissive          |
+|             | (MIT/BSD/Apache) preferred; weak copyleft (LGPL) allowed with       |
+|             | obligations documented; GPL code is never copied into ours.         |
+|             | Endgoal unchanged: the OS develops itself (M-Selfendgame).          |
 | Hardware    | Older PC: SATA AHCI + PS/2 first (NVMe/xHCI/HDA later, no redesign needed)|
 | First UI    | CLI: VGA text + serial console; add framebuffer (VBE) before M6           |
 | Language    | C++17 freestanding on gcc now; userland C compiled in-OS from M5.5|
@@ -17,11 +30,13 @@ author — recorded here so future sessions don't re-litigate them.
 |             | our TinyCC fork (LGPL-2.1): use, extend, maintain in-tree. Source |
 |             | obligations: publish fork sources, keep notices. Compiled output  |
 |             | is license-free ours. Endgame = fork eats the kernel C.           |
-| Formats     | (Adjunct 2026-11-01) Adopt existing standard formats wherever one  |
-|             | fits: PSF2 bitmap fonts, FAT32 filesystem, UTF-8 text, SysV AMD64  |
-|             | as the C ABI. We only define protocols where none exists — boot    |
-|             | chain, syscall ABI — that boundary is this project's design work,  |
-|             | not gratuitous format invention.                                  |
+| Formats     | (Adjunct 2026-11-01) Stick to free, openly documented formats       |
+|             | wherever one fits: PSF2 bitmap fonts, FAT32 filesystem, UTF-8      |
+|             | text, SysV AMD64 as the C ABI. We only define protocols where      |
+|             | none exists — boot chain, syscall ABI — that boundary is this      |
+|             | project's design work, not format invention. A KFS of our own      |
+|             | is deferred, not dead: revisit when FAT32 demonstrably cannot      |
+|             | carry what we need, or when self-hosting demands more.             |
 | Honest skip | Wi-Fi, Bluetooth, GPU acceleration, suspend/lid — walls, documented below.|
 
 ## Execution plan (near term, 2026-11-01)
@@ -76,10 +91,9 @@ author — recorded here so future sessions don't re-litigate them.
    retire the fixed boot slots.
 
 ### M5.5 — the compiler fork (wait until M5's file I/O exists)
-- Upstream: TinyCC (LGPL-2.1) — forked into the tree as KCC. Dogma
-  amendment logged 2026-11-01 in the decision table: the no-foreign-
-  code rule now carries one named exception (the compiler), because
-  pragmatic self-hosting beats a from-scratch compiler here. The fork
+- Upstream: TinyCC (LGPL-2.1) — forked into the tree as KCC. Lives
+  under the 2026-11-01 Licensing policy (weak-copyleft component in
+  the image; obligations documented in the decision table). The fork
   can be studied and even started early on the host, but in-OS use
   needs M5's write/read syscalls, malloc and printf first.
 - Port tactic: drive libtcc with memory buffers — source read from
@@ -154,7 +168,9 @@ as listed below.
 ## Build environment
 
 Toolchain = gcc/binutils/make/QEMU inside a Docker container
-(`scripts/build.ps1`, `scripts/run.ps1`). The compiler is the one
-accepted third-party artifact; every byte shipping in the OS image is
-ours. The maximalist goal (M-Selfendgame) is to eventually remove even
-that by rebuilding with our own compiler on the OS itself.
+(`scripts/build.ps1`, `scripts/run.ps1`). Licensing policy (row above):
+our source is written from specs; external tools stay in the container
+and out of the repository, and anything that ships in the image (the
+TinyCC fork from M5.5) is a separately licensed component with
+documented obligations. The maximalist goal (M-Selfendgame) is
+self-development: our fork (KCC) builds our kernel from within.

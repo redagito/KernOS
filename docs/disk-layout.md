@@ -11,7 +11,7 @@ and the docs are the cross-check):
 | 1 .. 62        | Stage 2 (flat binary, linked at 0x7E00)   | ≤ 31,744 B|
 | 63             | Reserved (zeros)                          | 512 B     |
 | 64 .. 575      | Kernel flat binary at 0x100000            | ≤ 256 KiB |
-| 576 ..         | Free — future FS (KFS) lives here         | —         |
+| 576 ..         | Free — future filesystem (FAT32, presumptive M4 choice)    | —         |
 
 ## Why stage 2 fits in track 0
 

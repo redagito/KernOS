@@ -17,6 +17,11 @@ author — recorded here so future sessions don't re-litigate them.
 |             | our TinyCC fork (LGPL-2.1): use, extend, maintain in-tree. Source |
 |             | obligations: publish fork sources, keep notices. Compiled output  |
 |             | is license-free ours. Endgame = fork eats the kernel C.           |
+| Formats     | (Adjunct 2026-11-01) Adopt existing standard formats wherever one  |
+|             | fits: PSF2 bitmap fonts, FAT32 filesystem, UTF-8 text, SysV AMD64  |
+|             | as the C ABI. We only define protocols where none exists — boot    |
+|             | chain, syscall ABI — that boundary is this project's design work,  |
+|             | not gratuitous format invention.                                  |
 | Honest skip | Wi-Fi, Bluetooth, GPU acceleration, suspend/lid — walls, documented below.|
 
 ## Execution plan (near term, 2026-11-01)
@@ -105,9 +110,11 @@ as listed below.
   cache, 4 KiB page fault handling; kernel virtual map with a proper
   higher-half (no more fixed boot slots).
 - **M4 — Persistence**
-  PCI enumeration, AHCI driver (spec §ours), KFS filesystem designed
-  on a blank page, `mkfs` host tool, replace the fat-image hack with a
-  kernel-image header on disk.
+  PCI enumeration, AHCI driver (spec §ours), FAT32 (existing specced
+  format; read/write) on the OS disk, `mkfs` host tool, boot-chain
+  image header replacing the fat-image hack (that header is the boot
+  ABI — a protocol, not a format invention; defined in
+  docs/disk-layout.md).
 - **M5 — Userland**
   Syscall ABI (defined in docs/syscall-abi.md when written), ELF64
   loader, process model, our libc, init + shell + utilities.
@@ -118,8 +125,10 @@ as listed below.
   Residual wall: tcc's GNU-as support is partial, so the tiny boot
   `.s` files may keep binutils unless we someday add an own assembler.
 - **M6 — GUI**
-  Hand-drawn bitmap font, framebuffer (VBE in BIOS boot), software
-  compositor, window manager, terminal emulator on our API.
+  Hand-drawn glyphs stored in PSF2 (standard console-font container,
+  no custom format), framebuffer (VBE in BIOS boot), software
+  compositor, window manager, terminal emulator on our API; text
+  is UTF-8 from the start.
 - **M7 — Network**
   Ethernet → ARP → IP → UDP → TCP from scratch on Intel e1000 or
   Realtek 8139/8168; text tools (netcat-a-like, smtp first, then http).

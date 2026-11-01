@@ -1,8 +1,9 @@
 # KernOS Makefile — runs inside the build container (gcc:13) or WSL.
 #
 # Key rules:
-#   * Kernel C++ is freestanding 64-bit, no red zone, SSE/MMX off (they
-#     stay that way until FPU state saves exist on context switches).
+#   * The kernel is C11, freestanding 64-bit, no red zone, SSE/MMX off
+#     (they stay that way until FPU state saves exist on context
+#     switches). C was chosen so the TinyCC endgame is honest.
 #   * Boot stages are assembled with GNU as (no foreign assembler).
 #   * Header dependencies are tracked with -MMD -MP. The old KernOS tree
 #     rebuilt nothing when headers changed; silent stale objects are not
@@ -11,7 +12,6 @@
 MAKEFLAGS += -r -R
 
 CC      := gcc
-CXX     := g++
 AS      := as
 LD      := ld
 OBJCOPY := objcopy
@@ -20,8 +20,7 @@ BUILD   := build
 OBJ     := obj
 INC     := include
 
-CXXFLAGS := -std=c++17 -m64 -ffreestanding -fno-builtin \
-	-fno-exceptions -fno-rtti -fno-use-cxa-atexit \
+KFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin \
 	-fno-stack-protector -fno-pie -fno-pic \
 	-mno-red-zone -mno-mmx -mno-sse -mno-sse2 -msoft-float \
 	-Wall -Wextra -O2 -g \
@@ -30,8 +29,9 @@ CXXFLAGS := -std=c++17 -m64 -ffreestanding -fno-builtin \
 HOST_CFLAGS := -std=c11 -O2 -Wall -Wextra
 
 # -----
-# Kernel link
+# Kernel objects
 # -----
+
 KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/main.o \
 	$(OBJ)/vga.o \
@@ -83,21 +83,21 @@ $(HOST_PROG): tools/mkimage.c
 # -----
 # Compilation
 # -----
-$(OBJ)/main.o: kernel/main.cpp
+$(OBJ)/main.o: kernel/main.c
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CC) $(KFLAGS) -c -o $@ $<
 
-$(OBJ)/vga.o: kernel/arch/x86_64/vga.cpp
+$(OBJ)/vga.o: kernel/arch/x86_64/vga.c
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CC) $(KFLAGS) -c -o $@ $<
 
-$(OBJ)/serial.o: kernel/arch/x86_64/serial.cpp
+$(OBJ)/serial.o: kernel/arch/x86_64/serial.c
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CC) $(KFLAGS) -c -o $@ $<
 
-$(OBJ)/cpu.o: kernel/arch/x86_64/cpu.cpp
+$(OBJ)/cpu.o: kernel/arch/x86_64/cpu.c
 	@mkdir -p $(@D)
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/start64.o: kernel/arch/x86_64/start.s
 	@mkdir -p $(@D)
@@ -111,7 +111,7 @@ $(OBJ)/stage2.o: boot/stage2.s
 	@mkdir -p $(@D)
 	$(AS) --32 -o $@ $<
 
-# Header dependency files (CXXFLAGS uses -MMD -MP).
+# Header dependency files (KFLAGS uses -MMD -MP).
 -include $(OBJ)/*.d
 
 clean:

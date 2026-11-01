@@ -11,4 +11,9 @@
  * boot ABI gets a struct when the image header lands.
  */
 
-void memmap_boot_init(void);   /* read + print the map over serial */
+#define E820_MAX_ENTRIES 32
+
+int  memmap_count(void);   /* 0 = capture failed */
+int  memmap_get(int i, u64 *base, u64 *len, u32 *type);
+
+void memmap_boot_init(void);   /* print the map over serial (gate evidence) */

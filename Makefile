@@ -49,6 +49,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/kbd.o \
 	$(OBJ)/sched.o \
 	$(OBJ)/mem.o \
+	$(OBJ)/pmm.o \
 	$(OBJ)/swtch.o \
 	$(OBJ)/isr.o
 
@@ -138,6 +139,10 @@ $(OBJ)/sched.o: kernel/arch/x86_64/sched.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/mem.o: kernel/arch/x86_64/mem.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/pmm.o: kernel/arch/x86_64/pmm.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

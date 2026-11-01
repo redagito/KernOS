@@ -13,6 +13,7 @@
 #include "arch/x86_64/irq.h"
 #include "arch/x86_64/pit.h"
 #include "arch/x86_64/mem.h"
+#include "arch/x86_64/pmm.h"
 #include "arch/x86_64/sched.h"
 
 static volatile u64 worker_reports;    /* lines printed across workers */
@@ -68,6 +69,37 @@ void kernel_main(void)
 
     /* M3.1: the real physical memory map from the E820 boot ABI. */
     memmap_boot_init();
+
+    /* M3.2: frame allocator. Self-test: three allocs, a deliberate
+       double-free (must be refused), then balance restored. */
+    pmm_init();
+    {
+        u64 before = pmm_free_frames();
+        u64 a = pmm_alloc(), b = pmm_alloc(), c = pmm_alloc();
+
+        serial_puts("pmm: alloc ");
+        serial_puts_hex(a);
+        serial_puts(" ");
+        serial_puts_hex(b);
+        serial_puts(" ");
+        serial_puts_hex(c);
+        serial_puts("\n");
+
+        if (a && b && c && (a & 0xFFF) == 0 && (b & 0xFFF) == 0 &&
+            (c & 0xFFF) == 0 && a != b && b != c) {
+            pmm_free(a);
+            pmm_free(a);               /* must be refused */
+            pmm_free(b);
+            pmm_free(c);
+            if (pmm_free_frames() == before) {
+                serial_puts("pmm: selftest ok\n");
+            } else {
+                serial_puts("pmm: selftest FAILED (balance)\n");
+            }
+        } else {
+            serial_puts("pmm: selftest FAILED (alloc)\n");
+        }
+    }
 
     trap_init();
     serial_puts("traps online\n");

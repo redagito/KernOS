@@ -1,18 +1,23 @@
-M3.1: E820 capture in stage 2 + boot memory ABI + kernel map print
+M3.2: physical frame allocator (E820 -> LIFO frame stack)
 
-- stage2.s: int 15h E820 ('SMAP') capture while interrupts are still
-  on and the BIOS is still alive - deliberately the LAST BIOS data
-  call of the boot, made right after the A20 phase. Entries (24-byte
-  ACPI layout) land at 0x608 with a u64 count at 0x600, 32 max; empty
-  map or garbage ECX fails the boot at the 'X' phase. New phase
-  sensor 'M' (sequence is now 1ajULMPK).
-- docs/disk-layout.md: the handoff is now a normative ABI table
-  (count at 0x600, entries 0x608, 24 B stride); the pointer/struct
-  form moves into the image header when that lands.
-- mem.c: kernel reads the fixed addresses and prints every entry
-  over serial. The page allocator will consume exactly this table.
+- pmm.c: type-1 runs from the E820 boot ABI pushed ascending into a
+  free-frame stack (32768-frame table in .bss = 128 MiB capacity).
+  Reserved-out: everything below 1 MiB (BIOS estate: stage 1/2, page
+  tables still referenced by CR3) and everything through the kernel's
+  page-rounded __bss_end, so neither boot nor kernel data can ever
+  collide with an allocated frame. Reclaiming stage-2 territory waits
+  for the kernel to own its own page tables.
+- API: pmm_alloc/pmm_free/pmm_free_frames; pmm_free refuses
+  unaligned/below-limit frames and O(n)-scans against double free
+  (honest, deliberate - the O(1) bitmap arrives with the M3.4
+  heap/bitmap slice; MLFQ-style allocator games deferred).
+- mem.c refactored into a reusable iterator (memmap_count/get) so
+  pmm_init reads the same ABI source of truth instead of a copy.
+- main.c self-test: 3 consecutive allocs (aligned, distinct,
+  descending from the run top), one deliberate double-free that must
+  be refused, then balance restored.
 
-Evidence (QEMU, 128 MiB): 7 entries, textbook layout - low RAM at
-0x0-0x9FC00, ISA/BIOS holes reserved, the big usable run
-0x100000-0x7FE0000, EBDA + PCI hole + PCI-E config above. Kernel and
-scheduler untouched and green (reports=6 switches=237).
+Evidence (QEMU 128 MiB): frames=0x7e8c (~126.5 MiB above the kernel,
+matches the map arithmetic), allocs 0x7fdf000/0x7fde000/0x7fdd000,
+"pmm: double free 0x7fdf000" refusal line, "pmm: selftest ok", and
+the M2.4 scheduler demo green after allocator bring-up.

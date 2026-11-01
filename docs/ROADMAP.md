@@ -12,7 +12,11 @@ author — recorded here so future sessions don't re-litigate them.
 | Boot        | Own MBR → stage 2 → long mode. BIOS supplies the boot vector only (16-bit start); from stage 1's first instruction onward the chain drives the hardware directly (ATA PIO). No GRUB. No foreign code. |
 | Hardware    | Older PC: SATA AHCI + PS/2 first (NVMe/xHCI/HDA later, no redesign needed)|
 | First UI    | CLI: VGA text + serial console; add framebuffer (VBE) before M6           |
-| Language    | C++17 freestanding on gcc now; own assembler + compiler later (self-host) |
+| Language    | C++17 freestanding on gcc now; userland C compiled in-OS from M5.5|
+| Compiler    | (Amended 2026-11-01, supersedes own-compiler-from-scratch) KCC =   |
+|             | our TinyCC fork (LGPL-2.1): use, extend, maintain in-tree. Source |
+|             | obligations: publish fork sources, keep notices. Compiled output  |
+|             | is license-free ours. Endgame = fork eats the kernel C.           |
 | Honest skip | Wi-Fi, Bluetooth, GPU acceleration, suspend/lid — walls, documented below.|
 
 ## Execution plan (near term, 2026-11-01)
@@ -66,6 +70,20 @@ author — recorded here so future sessions don't re-litigate them.
 2. 4 KiB fault-driven demand paging; move to a proper higher-half map,
    retire the fixed boot slots.
 
+### M5.5 — the compiler fork (wait until M5's file I/O exists)
+- Upstream: TinyCC (LGPL-2.1) — forked into the tree as KCC. Dogma
+  amendment logged 2026-11-01 in the decision table: the no-foreign-
+  code rule now carries one named exception (the compiler), because
+  pragmatic self-hosting beats a from-scratch compiler here. The fork
+  can be studied and even started early on the host, but in-OS use
+  needs M5's write/read syscalls, malloc and printf first.
+- Port tactic: drive libtcc with memory buffers — source read from
+  our FS into RAM, ELF64 object out — instead of porting tcc's host
+  file/fork plumbing wholesale.
+- Keep tcc's x86-64 SysV codegen as our C ABI; write docs/c-abi.md
+  when the first syscall ABI lands (M5), so host cross-compiled
+  programs and fork-compiled programs share one ABI from day one.
+
 M4 (persistence), M5 (userland), M6 (GUI), M7 (network), M-Selfendgame
 as listed below.
 
@@ -93,15 +111,24 @@ as listed below.
 - **M5 — Userland**
   Syscall ABI (defined in docs/syscall-abi.md when written), ELF64
   loader, process model, our libc, init + shell + utilities.
+- **M5.5 — Compile C inside the OS** (TinyCC-fork path, locked 2026-11-01)
+  KCC = our TinyCC fork (LGPL-2.1; fork policy and port surface
+  described in the execution plan). Acceptance U2: type `hello.c` in
+  an in-OS editor, compile with in-OS `kcc`, run from the shell.
+  Residual wall: tcc's GNU-as support is partial, so the tiny boot
+  `.s` files may keep binutils unless we someday add an own assembler.
 - **M6 — GUI**
   Hand-drawn bitmap font, framebuffer (VBE in BIOS boot), software
   compositor, window manager, terminal emulator on our API.
 - **M7 — Network**
   Ethernet → ARP → IP → UDP → TCP from scratch on Intel e1000 or
   Realtek 8139/8168; text tools (netcat-a-like, smtp first, then http).
-- **M-Selfendgame — self-host**
-  Own assembler, then own C compiler; rebuild the kernel with it.
-  Treated as an endgame, not a gate.
+- **M-Selfendgame — self-host (reworded for the fork path)**
+  Our TinyCC fork (KCC) extended until it compiles the kernel's C;
+  rebuild the kernel with our fork and retire gcc from the build.
+  The boot-chain assembly may keep binutils (see M5.5 residual wall);
+  an own assembler for that last mile remains an optional dream,
+  not a promise. Treated as an endgame, not a gate.
 
 ## The walls (recorded so nobody rediscovers them the hard way)
 

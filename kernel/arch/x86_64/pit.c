@@ -2,6 +2,7 @@
 #include "irq.h"
 #include "serial.h"
 #include "pit.h"
+#include "sched.h"
 
 /*
  * 8254 PIT channel 0 →IRQ0, mode 2 (rate generator). Base 1193182 Hz
@@ -20,6 +21,13 @@ static void pit_handler(struct trapframe *tf)
 {
     (void)tf;
     ticks++;
+    /* EOI before schedule(): a preemptive switch never returns through
+       irq_dispatch's tail, and an un-EOI'd PIC would go silent (ISR
+       bit for IRQ0 stuck -> no further ticks -> every hlt sleeps for
+       good). The switched-away invocation still EOIs again later from
+       its own tail - ignored if nothing is in service. */
+    irq_eoi(0);
+    schedule();                        /* M2.4: preemptive round-robin */
 }
 
 static void out8(u16 port, u8 val) { __asm__ volatile("outb %0, %1" :: "a"(val), "Nd"(port)); }

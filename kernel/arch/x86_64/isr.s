@@ -193,3 +193,5 @@ trap_stub_table:
     .quad irq_13
     .quad irq_14
     .quad irq_15
+
+    .section .note.GNU-stack,"",@progbits

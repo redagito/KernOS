@@ -1,7 +1,8 @@
 /*
- * KernOS kernel main. First C the boot chain reaches.
- * M2.2: interrupts come up (PIC remapped, PIT live) and the IRQ0 tick
- * is measured against wall clock. TRAP_SELFTEST=1 adds an int3 gate.
+ * KernOS kernel main. M2.4: preemptive round-robin scheduler over the
+ * PIT tick. Two worker threads report over serial from their own
+ * stacks; kernel_main (thread 0) waits for them and prints the
+ * switch count. TRAP_SELFTEST=1 adds an int3 gate.
  */
 
 #include "arch/x86_64/vga.h"
@@ -11,7 +12,41 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/irq.h"
 #include "arch/x86_64/pit.h"
-#include "arch/x86_64/kbd.h"
+#include "arch/x86_64/sched.h"
+
+static volatile u64 worker_reports;    /* lines printed across workers */
+
+static void putdec(u64 v)
+{
+    char b[24];
+    int i = (int)sizeof b - 1;
+    b[i] = 0;
+    if (!v) b[--i] = '0';
+    while (v) { b[--i] = (char)('0' + v % 10); v /= 10; }
+    serial_puts(&b[i]);
+}
+
+static void worker(void *arg)
+{
+    char tag = (char)(long)arg;        /* 'A' or 'B' */
+    u64 wakes = 0, reports = 0;
+
+    serial_putc(tag);
+    serial_puts(": enter\n");
+
+    for (;;) {
+        __asm__ volatile("hlt");       /* sleep till the next tick slice */
+        wakes++;
+        if (wakes % 25 == 0 && reports < 3) {
+            reports++;
+            worker_reports++;
+            serial_putc(tag);
+            serial_puts(": report #");
+            putdec(reports);
+            serial_puts("\n");
+        }
+    }
+}
 
 void kernel_main(void)
 {
@@ -30,32 +65,28 @@ void kernel_main(void)
     serial_puts(vendor);
     serial_puts("\n");
 
-    /* M2.1: fault safety net (dump-and-park paths). */
     trap_init();
-    vga_puts("traps online\n");
     serial_puts("traps online\n");
 
-    /* M2.2: we own the PIC now; PIT is the first device on it. */
     irq_init();
+    sched_init();
     pit_init();
+    thread_spawn("A", worker, (void *)(long)'A');
+    thread_spawn("B", worker, (void *)(long)'B');
+    serial_puts("sched: spawned A+B\n");
 
-    /* M2.3: PS/2 keyboard, key echo to both consoles. */
-    kbd_init();
     __asm__ volatile("sti");
-    vga_puts("irqs on\n");
-    serial_puts("irqs on: type 10 keys\n");
 
-    {
-        int n = 0;
-        while (n < 10) {
-            __asm__ volatile("hlt");
-            for (char c; (c = kbd_getc()); ++n) {
-                vga_putc(c);
-                serial_putc(c);
-            }
-        }
-    }
-    serial_puts("\nkbd: 10 events consumed\n");
+    while (worker_reports < 6 && pit_ticks() < 1500)
+        __asm__ volatile("hlt");
+
+    serial_puts("sched: reports=");
+    putdec(worker_reports);
+    serial_puts(" switches=");
+    putdec(sched_switches());
+    serial_puts(" ticks=");
+    putdec(pit_ticks());
+    serial_puts("\n");
 
 #if TRAP_SELFTEST
     vga_puts("selftest: int3\n");

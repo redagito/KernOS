@@ -17,3 +17,4 @@ typedef void (*irq_handler_t)(struct trapframe *tf);
 void irq_init(void);                             /* remap + mask-all */
 void irq_enable(u8 irq);                         /* unmask exactly one */
 void irq_set_handler(u8 irq, irq_handler_t fn);  /* NULL = spurious sink */
+void irq_eoi(u8 irq);                            /* early-EOI for switching handlers */

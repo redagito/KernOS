@@ -47,6 +47,8 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/irq.o \
 	$(OBJ)/pit.o \
 	$(OBJ)/kbd.o \
+	$(OBJ)/sched.o \
+	$(OBJ)/swtch.o \
 	$(OBJ)/isr.o
 
 BOOT_OBJ  := $(OBJ)/mbr.o $(OBJ)/stage2.o
@@ -129,6 +131,14 @@ $(OBJ)/irq.o: kernel/arch/x86_64/irq.c
 $(OBJ)/kbd.o: kernel/arch/x86_64/kbd.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/sched.o: kernel/arch/x86_64/sched.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/swtch.o: kernel/arch/x86_64/swtch.s
+	@mkdir -p $(@D)
+	$(AS) -o $@ $<
 
 $(OBJ)/isr.o: kernel/arch/x86_64/isr.s
 	@mkdir -p $(@D)

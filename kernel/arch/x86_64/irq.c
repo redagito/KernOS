@@ -62,6 +62,15 @@ void irq_set_handler(u8 irq, irq_handler_t fn)
     if (irq < IRQ_COUNT) handlers[irq] = fn;
 }
 
+/* End-of-interrupt, for handlers that preemptively switch stacks away
+   mid-handler and so never reach irq_dispatch's tail. Safe to send
+   again later: with no ISR bit set the PIC ignores the EOI. */
+void irq_eoi(u8 irq)
+{
+    if (irq >= 8) out8(SLAVE_CMD, 0x20);
+    out8(MASTER_CMD, 0x20);
+}
+
 void irq_dispatch(struct trapframe *tf)
 {
     u32 vec = (u32)tf->vector;

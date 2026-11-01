@@ -25,7 +25,10 @@ principles amended 2026-11-01, same day, after dogma friction.)
 |             | Endgoal unchanged: the OS develops itself (M-Selfendgame).          |
 | Hardware    | Older PC: SATA AHCI + PS/2 first (NVMe/xHCI/HDA later, no redesign needed)|
 | First UI    | CLI: VGA text + serial console; add framebuffer (VBE) before M6           |
-| Language    | C++17 freestanding on gcc now; userland C compiled in-OS from M5.5|
+| Language    | (Amended 2026-11-01) C11, freestanding, for kernel + userland      |
+|             | alike; boot chain in assembly. Chosen so the tcc endgame is        |
+|             | honest: tcc is a C compiler, and the kernel was already C-shaped   |
+|             | C++ with no real C++ substance. Converted while it is tiny.        |
 | Compiler    | (Amended 2026-11-01, supersedes own-compiler-from-scratch) KCC =   |
 |             | our TinyCC fork (LGPL-2.1): use, extend, maintain in-tree. Source |
 |             | obligations: publish fork sources, keep notices. Compiled output  |
@@ -174,3 +177,23 @@ and out of the repository, and anything that ships in the image (the
 TinyCC fork from M5.5) is a separately licensed component with
 documented obligations. The maximalist goal (M-Selfendgame) is
 self-development: our fork (KCC) builds our kernel from within.
+
+### The emulator bench (in addition to QEMU — amended 2026-11-01)
+
+One boot artifact, several independent witnesses. Every emulator runs
+the identical smoke boot (timeout, `-serial file:`) and the consoles'
+byte-exact sensor comparison is the same read. Divergences between
+emulators are the honest early warning for real-hardware bring-up.
+
+- **QEMU (default)** — fast, in-container; the day-to-day loop.
+- **Bochs (in-container)** — independent, reference-grade CPU and
+  device models, slow on purpose; refined logging + internal debugger
+  catch what QEMU's forgiving hardware hides (undocumented port
+  behavior, exact MSR/ACPI quirks).
+- **VirtualBox / Hyper-V (host tools)** — different firmware vendors
+  and device models; headless via VBoxManage; Hyper-V Gen1 from the
+  same raw image via `qemu-img convert` to VHD.
+- **86Box / PCem (host, optional)** — retro-machine fidelity for the
+  "older PC" target (era BIOSes/chipsets). Their ROM images are
+  proprietary firmware dumps: tools-outside-artifact per the
+  Licensing row; for our test bench only, never redistributed.

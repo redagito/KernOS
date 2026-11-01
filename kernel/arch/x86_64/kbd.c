@@ -1,0 +1,111 @@
+#include <kernel/types.h>
+#include "irq.h"
+#include "kbd.h"
+
+/*
+ * Scancode set 1 (the only real-world set on IBM PS/2 controllers that
+ * reports function bytes 0x00..0xFF in the sam shape as the classic
+ * keyboard docs). Port-level truth: status reg 0x64 bit 0 says the data
+ * reg 0x60 has a byte; the controller forwards both keyboard and mouse
+ * packets there; we are keyboard-only until M6.
+ *
+ * Ring buffer so the IRQ handler never blocks and the consumer polls.
+ */
+
+#define KBD_DATA   0x60
+#define KBD_STAT   0x64
+
+/* 2^N ring: head==tail means empty. */
+#define RING_BITS  7
+#define RING_SIZE  (1u << RING_BITS)
+#define RING_MASK  (RING_SIZE - 1)
+
+static volatile u8 ring[RING_SIZE];
+static volatile u8 head, tail;
+static volatile u64 events;
+
+static volatile u8 shift_down;
+static u8 extended_pending;
+
+/* Set-1 make codes <= 0x7F we translate. Everything else maps to 0. */
+static const char code_ascii[0x54] = {
+    /* 0x00 */ 0,   0x1B, '1', '2', '3', '4', '5', '6',
+    /* 0x08 */ '7', '8', '9', '0', '-', '=', 0x08, 0x09,   /* esc ... tab */
+    /* 0x10 */ 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i',
+    /* 0x18 */ 'o', 'p', '[', ']', 0x0A,                  /* 0x1C = enter */
+    /* 0x1D */ 0,   'a', 's', 'd', 'f', 'g', 'h', 'j',    /* 0x1D = ctrl */
+    /* 0x25 */ 'k', 'l', ';', '\'', '`',                  /* 0x25..0x29 */
+    /* 0x2A */ 0,   '\\', 'z', 'x', 'c', 'v', 'b', 'n',   /* 0x2A = lshift */
+    /* 0x32 */ 'm', ',', '.', '/', 0,   '*',              /* 0x36=rshift */
+    /* 0x38 */ 0,   ' ',                                  /* 0x38 alt, 0x39 space */
+};
+
+static u8 in8(u16 port)
+{
+    u8 v;
+    __asm__ volatile("inb %1, %0" : "=a"(v) : "Nd"(port));
+    return v;
+}
+
+static void kbd_handler(struct trapframe *tf);
+
+void kbd_init(void)
+{
+    head = tail = 0;
+    events = 0;
+    shift_down = 0;
+    extended_pending = 0;
+    irq_set_handler(1, kbd_handler);
+    irq_enable(1);
+}
+
+static void push(char c)
+{
+    u8 next = (u8)((head + 1) & RING_MASK);
+    if (next == tail) return;          /* full: drop, IRQ keeps flowing */
+    ring[head] = (u8)c;
+    head = next;
+    events++;
+}
+
+static void kbd_handler(struct trapframe *tf)
+{
+    (void)tf;
+    u8 st = in8(KBD_STAT);
+    if (!(st & 0x01)) return;          /* no byte: controller ghost */
+
+    u8 sc = in8(KBD_DATA);
+
+    /* E0/E1 prefixes: skip their follow-up byte (arrows, etc.). */
+    if (extended_pending) { extended_pending = 0; return; }
+    if (sc == 0xE0 || sc == 0xE1) { extended_pending = 1; return; }
+
+    u8 released = sc & 0x80;
+    u8 plain    = sc & 0x7F;
+
+    if (plain == 0x2A || plain == 0x36) {   /* both shift keys */
+        shift_down = !released;
+        return;
+    }
+    if (released) return;                   /* break codes end here */
+
+    if (plain < sizeof code_ascii) {
+        char c = code_ascii[plain];
+        if (c >= 'a' && c <= 'z' && shift_down)
+            c = (char)(c - 'a' + 'A');
+        if (c) push(c);
+    }
+}
+
+char kbd_getc(void)
+{
+    if (head == tail) return 0;
+    char c = (char)ring[tail];
+    tail = (u8)((tail + 1) & RING_MASK);
+    return c;
+}
+
+u64 kbd_events(void)
+{
+    return events;
+}

@@ -1,21 +1,17 @@
-M2.2: PIC remap + PIT tick (first returning interrupts)
+M2.3: PS/2 keyboard - first real input path
 
-- irq.c: 8259A owned and remapped to vectors 32..47 (ICW1..4, base
-  chosen by us); all lines masked pending irq_enable(); handler
-  registry + EOI policy (master always, slave for lines 8+); spurious
-  counters for IRQ7/15 ghosts.
-- pit.c: channel 0, mode 2, divisor 11932 => ~100 Hz; ticks counter.
-- isr.s split: trap_common stays dump-and-park (exceptions have no
-  return), new irq_common saves/restores 15 GPRs, drops vec+err slots,
-  iretq - the FIRST interrupts that return. IRQ stubs keep the same
-  17-slot frame so trapframes stay one shape.
-- main.c: sti after bring-up; hlt-wait for 300 ticks.
+- kbd.c: IRQ1, ports 0x60/0x64, scancode set 1 -> ASCII table
+  (letters/digits/punct/enter/tab/esc/backspace/space), both shift
+  keys tracked through make+break, E0/E1 prefix follow-up escaping,
+  power-of-two ring buffer (2^7) so the IRQ never blocks, break codes
+  never reach the consumer. Controller stat bit 0 gates every read.
+- main.c: block-on-hlt key consumer echoing each key to VGA + serial,
+  10 events as the milestone gate.
 
-Two bugs caught by the dump itself (the point of M2.1):
-1. IDT filled only vectors 0..31 -> first IRQ hit a zero descriptor,
-   #GP err=0x202 (external + bad selector) chaser of the truth.
-2. Then the fix exposed: trap_ist[32] read out of bounds for v=32..47
-   as an IST index -> garbage RSP switch inside the TSS, CR2=-8.
-   Now: ist=0 for v>=32, IDT covers 48 entries.
+QEMU evidence: 'sendkey h e l l o spc k e r n' through the monitor
+produces "hello kern" then "kbd: 10 events consumed" on serial -
+end-to-end interrupt->driver->decode->buffer->consumer->consoles.
 
-Evidence: "done: ticks=0x12c" = exactly 300 in the 3 s window.
+Note: table comments verified against the classic IBM set-1 map row
+by row (0x1D ctrl, 0x2A lshift, 0x36 rshift, 0x39 space); mouse
+packets (shared controller, IRQ12) deliberately untouched in M2.3.

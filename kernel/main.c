@@ -11,6 +11,7 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/irq.h"
 #include "arch/x86_64/pit.h"
+#include "arch/x86_64/kbd.h"
 
 void kernel_main(void)
 {
@@ -38,16 +39,23 @@ void kernel_main(void)
     irq_init();
     pit_init();
 
+    /* M2.3: PS/2 keyboard, key echo to both consoles. */
+    kbd_init();
     __asm__ volatile("sti");
     vga_puts("irqs on\n");
-    serial_puts("irqs on: waiting 300 ticks (3s)\n");
+    serial_puts("irqs on: type 10 keys\n");
 
-    while (pit_ticks() < 300)
-        __asm__ volatile("hlt");
-
-    serial_puts("done: ticks=");
-    serial_puts_hex(pit_ticks());
-    serial_puts("\n");
+    {
+        int n = 0;
+        while (n < 10) {
+            __asm__ volatile("hlt");
+            for (char c; (c = kbd_getc()); ++n) {
+                vga_putc(c);
+                serial_putc(c);
+            }
+        }
+    }
+    serial_puts("\nkbd: 10 events consumed\n");
 
 #if TRAP_SELFTEST
     vga_puts("selftest: int3\n");

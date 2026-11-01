@@ -55,6 +55,35 @@ TRAP 29, 1
 TRAP 30, 1
 TRAP 31, 1
 
+/* Hardware IRQ stubs: PIC remap puts IRQ0..15 on vectors 32..47.
+   Uniform frame shape (err placeholder), vector is inside tf so the C
+   dispatcher only needs the frame pointer; these MUST return (iretq),
+   unlike the exception path which parks. */
+
+.macro IRQ i
+irq_\i:
+    pushq $0                       /* err slot (uniform frame) */
+    pushq $(\i + 32)               /* vec slot: PIC remap base 32 */
+    jmp irq_common
+.endm
+
+IRQ 0
+IRQ 1
+IRQ 2
+IRQ 3
+IRQ 4
+IRQ 5
+IRQ 6
+IRQ 7
+IRQ 8
+IRQ 9
+IRQ 10
+IRQ 11
+IRQ 12
+IRQ 13
+IRQ 14
+IRQ 15
+
 trap_common:
     pushq %rdi
     pushq %rsi
@@ -76,6 +105,42 @@ trap_common:
 1:  cli
     hlt
     jmp   1b
+
+irq_common:
+    pushq %rdi
+    pushq %rsi
+    pushq %rdx
+    pushq %rcx
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %rax
+    pushq %rbx
+    pushq %rbp
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    movq  %rsp, %rdi
+    call  irq_dispatch
+    popq  %r15
+    popq  %r14
+    popq  %r13
+    popq  %r12
+    popq  %rbp
+    popq  %rbx
+    popq  %rax
+    popq  %r11
+    popq  %r10
+    popq  %r9
+    popq  %r8
+    popq  %rcx
+    popq  %rdx
+    popq  %rsi
+    popq  %rdi
+    addq  $16, %rsp                /* drop vec + err slots */
+    iretq
 
     .section .rodata
     .globl trap_stub_table
@@ -112,3 +177,19 @@ trap_stub_table:
     .quad trap_29
     .quad trap_30
     .quad trap_31
+    .quad irq_0
+    .quad irq_1
+    .quad irq_2
+    .quad irq_3
+    .quad irq_4
+    .quad irq_5
+    .quad irq_6
+    .quad irq_7
+    .quad irq_8
+    .quad irq_9
+    .quad irq_10
+    .quad irq_11
+    .quad irq_12
+    .quad irq_13
+    .quad irq_14
+    .quad irq_15

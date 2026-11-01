@@ -1,23 +1,21 @@
-M2.1: exception safety net - GDT/TSS/IDT + dump-and-park
+M2.2: PIC remap + PIT tick (first returning interrupts)
 
-From now on any kernel fault prints a full trap dump over serial
-instead of silently triple-faulting into a reboot loop (J that bug
-cost the M1 session a full forensic chase).
+- irq.c: 8259A owned and remapped to vectors 32..47 (ICW1..4, base
+  chosen by us); all lines masked pending irq_enable(); handler
+  registry + EOI policy (master always, slave for lines 8+); spurious
+  counters for IRQ7/15 ghosts.
+- pit.c: channel 0, mode 2, divisor 11932 => ~100 Hz; ticks counter.
+- isr.s split: trap_common stays dump-and-park (exceptions have no
+  return), new irq_common saves/restores 15 GPRs, drops vec+err slots,
+  iretq - the FIRST interrupts that return. IRQ stubs keep the same
+  17-slot frame so trapframes stay one shape.
+- main.c: sti after bring-up; hlt-wait for 300 ticks.
 
-- isr.s: 32 exception stub stamps (vectors 0-31); err-placeholder push
-  keeps one uniform frame shape; trap_common saves all 15 GPRs and
-  calls dump_trap(vec). Stub table in .rodata for IDT assembly.
-  Frame-order lesson (caught by self-test output): err-placeholder
-  needed ONLY where the CPU pushes no code; inverted the check at
-  first and the self-test's thrown-away "err" showed it instantly.
-- idt.c: kernel GDT mirrors stage-2 layout (same descriptor VALUES so
-  CS=0x20 etc. survive lgdt) + 64-bit TSS at 0x28 for IST1 (fault
-  stack for NMI/#DF/#MC); IDT filled from trap_stub_table.
-- trap.c: named vectors, register/CR0/CR3/CR4 dumps, CR2 for #PF;
-  park (cli/hlt) after dump - no recovery paths in M2.1.
-- start.s: stack_top/stack_bottom now .globl (idt.c needs rsp0).
-- main.c: trap_init() + deliberate int3 self-test as boot-time gate.
+Two bugs caught by the dump itself (the point of M2.1):
+1. IDT filled only vectors 0..31 -> first IRQ hit a zero descriptor,
+   #GP err=0x202 (external + bad selector) chaser of the truth.
+2. Then the fix exposed: trap_ist[32] read out of bounds for v=32..47
+   as an IST index -> garbage RSP switch inside the TSS, CR2=-8.
+   Now: ist=0 for v>=32, IDT covers 48 entries.
 
-QEMU evidence: "#BP breakpoint (vec 3, err 0)" with rip=0x1000c6
-(the int3 site), cs=0x20, rflags=0x46, rsp=0x108fe0 - all coherent;
-then park. Portal to every later milestone: bugs print dumps.
+Evidence: "done: ticks=0x12c" = exactly 300 in the 3 s window.

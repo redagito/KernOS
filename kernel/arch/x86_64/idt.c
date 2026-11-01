@@ -105,11 +105,13 @@ void idt_init(void)
 
     const u64 *stubs = trap_stub_table;
 
-    for (int v = 0; v < 32; ++v) {
+    /* Vectors 0..47: 32 exceptions + 16 remapped IRQs all in the
+       stub table (isr.s .rodata). */
+    for (int v = 0; v < 48; ++v) {
         u64 addr = stubs[v];
         idt[v].off_lo  = addr & 0xFFFF;
         idt[v].cs      = SEL_CODE64;
-        idt[v].ist     = trap_ist[v];
+        idt[v].ist     = (v < 32) ? trap_ist[v] : 0;   /* IRQs: no IST */
         idt[v].attr    = 0x8E;             /* interrupt gate, DPL0, present */
         idt[v].off_mid = (addr >> 16) & 0xFFFF;
         idt[v].off_hi  = (addr >> 32) & 0xFFFFFFFF;

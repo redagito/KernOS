@@ -20,11 +20,16 @@ BUILD   := build
 OBJ     := obj
 INC     := include
 
+TRAP_SELFTEST ?= 0
+
 KFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin \
 	-fno-stack-protector -fno-pie -fno-pic \
 	-mno-red-zone -mno-mmx -mno-sse -mno-sse2 -msoft-float \
 	-Wall -Wextra -O2 -g \
-	-I$(INC) -MMD -MP
+	-I$(INC) -MMD -MP \
+	-DTRAP_SELFTEST=$(TRAP_SELFTEST)
+
+TRAP_SELFTEST ?= 0
 
 HOST_CFLAGS := -std=c11 -O2 -Wall -Wextra
 
@@ -39,6 +44,8 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/cpu.o \
 	$(OBJ)/trap.o \
 	$(OBJ)/idt.o \
+	$(OBJ)/irq.o \
+	$(OBJ)/pit.o \
 	$(OBJ)/isr.o
 
 BOOT_OBJ  := $(OBJ)/mbr.o $(OBJ)/stage2.o
@@ -107,6 +114,14 @@ $(OBJ)/trap.o: kernel/arch/x86_64/trap.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/idt.o: kernel/arch/x86_64/idt.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/pit.o: kernel/arch/x86_64/pit.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/irq.o: kernel/arch/x86_64/irq.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

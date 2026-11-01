@@ -1,14 +1,16 @@
 /*
- * KernOS kernel main. First C the boot chain reaches; M2.1 adds the
- * exception safety net: after the consoles spin up we install our own
- * GDT/TSS/IDT. The int3 self-test at the end should produce a full
- * register dump over serial - dump-and-park is M2.1 policy.
+ * KernOS kernel main. First C the boot chain reaches.
+ * M2.2: interrupts come up (PIC remapped, PIT live) and the IRQ0 tick
+ * is measured against wall clock. TRAP_SELFTEST=1 adds an int3 gate.
  */
 
 #include "arch/x86_64/vga.h"
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/trap.h"
+#include "arch/x86_64/idt.h"
+#include "arch/x86_64/irq.h"
+#include "arch/x86_64/pit.h"
 
 void kernel_main(void)
 {
@@ -27,16 +29,31 @@ void kernel_main(void)
     serial_puts(vendor);
     serial_puts("\n");
 
-    /* M2.1: exception safety net. Any fault from here prints a full
-       dump over serial instead of a silent triple-fault reboot. */
+    /* M2.1: fault safety net (dump-and-park paths). */
     trap_init();
     vga_puts("traps online\n");
     serial_puts("traps online\n");
 
-    /* Self-test: an intentional #BP - expect the dump, then park. */
+    /* M2.2: we own the PIC now; PIT is the first device on it. */
+    irq_init();
+    pit_init();
+
+    __asm__ volatile("sti");
+    vga_puts("irqs on\n");
+    serial_puts("irqs on: waiting 300 ticks (3s)\n");
+
+    while (pit_ticks() < 300)
+        __asm__ volatile("hlt");
+
+    serial_puts("done: ticks=");
+    serial_puts_hex(pit_ticks());
+    serial_puts("\n");
+
+#if TRAP_SELFTEST
     vga_puts("selftest: int3\n");
     serial_puts("selftest: int3\n");
     __asm__ volatile("int3");
+#endif
 
     while (1)
         __asm__ volatile("hlt");

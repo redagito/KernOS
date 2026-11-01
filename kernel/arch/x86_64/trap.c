@@ -60,6 +60,25 @@ void trap_init(void)
     idt_init();
 }
 
+/* Per-vector exception registry; 0 = no handler = dump-and-park. */
+static exc_handler_t exc_handlers[32];
+
+void exc_set_handler(int vector, exc_handler_t fn)
+{
+    if (vector >= 0 && vector < 32)
+        exc_handlers[vector] = fn;
+}
+
+/* isr.s's trap_dispatch_common tail restores regs and iretq's only
+   when we return - i.e. when the fault was fixed. */
+void exc_dispatch(struct trapframe *tf)
+{
+    u32 v = (u32)tf->vector;
+    if (v < 32 && exc_handlers[v] && exc_handlers[v](tf) == 1)
+        return;
+    dump_trap(tf);
+}
+
 void dump_trap(struct trapframe *tf)
 {    prints("\n*** KernOS FAULT: ");
     prints(trap_names[tf->vector] ? trap_names[tf->vector] : "?");

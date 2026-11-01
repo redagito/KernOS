@@ -1,23 +1,25 @@
-M3.2: physical frame allocator (E820 -> LIFO frame stack)
+M3.3: page-fault handler - first recovering exception + demand paging
 
-- pmm.c: type-1 runs from the E820 boot ABI pushed ascending into a
-  free-frame stack (32768-frame table in .bss = 128 MiB capacity).
-  Reserved-out: everything below 1 MiB (BIOS estate: stage 1/2, page
-  tables still referenced by CR3) and everything through the kernel's
-  page-rounded __bss_end, so neither boot nor kernel data can ever
-  collide with an allocated frame. Reclaiming stage-2 territory waits
-  for the kernel to own its own page tables.
-- API: pmm_alloc/pmm_free/pmm_free_frames; pmm_free refuses
-  unaligned/below-limit frames and O(n)-scans against double free
-  (honest, deliberate - the O(1) bitmap arrives with the M3.4
-  heap/bitmap slice; MLFQ-style allocator games deferred).
-- mem.c refactored into a reusable iterator (memmap_count/get) so
-  pmm_init reads the same ABI source of truth instead of a copy.
-- main.c self-test: 3 consecutive allocs (aligned, distinct,
-  descending from the run top), one deliberate double-free that must
-  be refused, then balance restored.
+- isr.s: exceptions gain a RETURNING path (trap_dispatch_common,
+  mirrors irq_common): push 15 regs, call exc_dispatch, then - only
+  when the handler fixed the fault - restore, drop vec+err, iretq and
+  the faulting instruction retries. Park policy (dump_trap) stays as
+  the fallback for anything unhandled or unmendable.
+- trap.c: per-vector exception registry (32 slots). exc_dispatch:
+  handler returns 1 = fixed (return to asm tail), else dump_trap.
+- page.c: demand pager as the first registered handler (#PF):
+  anonymous 4 KiB pages materialize on first touch inside a fixed
+  128 MiB region above the 1 GiB identity map. One fault fixes all it
+  can - empty PDPT slot gets a new PD page, empty PD slot gets a PT
+  page, empty PT slot gets a zeroed frame from pmm_alloc - then
+  flushes CR3. Present-bit faults and out-of-region addresses are
+  declined (dump-and-park), and a 2 MiB leaf inside the demand region
+  is treated as a conflict.
+- main.c self-test: touch BASE (PD+PT+page), BASE+8192 (page only,
+  same block), BASE+4MiB (PD exists, PT+page); values written before
+  faulting are read back after the retry.
 
-Evidence (QEMU 128 MiB): frames=0x7e8c (~126.5 MiB above the kernel,
-matches the map arithmetic), allocs 0x7fdf000/0x7fde000/0x7fdd000,
-"pmm: double free 0x7fdf000" refusal line, "pmm: selftest ok", and
-the M2.4 scheduler demo green after allocator bring-up.
+Evidence: "pf: ok faults=3 pd=1 pt=2 pages=3" - faults exactly as
+predicted (3), both 2 MiB blocks sharing one PD (pd=1), a PT per
+block (pt=2), three anonymous frames (pages=3), read-backs clean,
+scheduler demo green after.

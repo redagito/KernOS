@@ -14,6 +14,7 @@
 #include "arch/x86_64/pit.h"
 #include "arch/x86_64/mem.h"
 #include "arch/x86_64/pmm.h"
+#include "arch/x86_64/page.h"
 #include "arch/x86_64/sched.h"
 
 static volatile u64 worker_reports;    /* lines printed across workers */
@@ -103,6 +104,38 @@ void kernel_main(void)
 
     trap_init();
     serial_puts("traps online\n");
+
+    /* M3.3 demand paging self-test:
+       touch A (fresh 2 MiB block: PD + PT + page), touch B (same
+       block: page only), touch C (fresh block: PD + PT + page); read
+       back what we wrote before the fault. */
+    pf_init();
+    {
+        volatile u64 *a = (volatile u64 *)PAGE_DEMAND_BASE;
+        volatile u64 *b = (volatile u64 *)(PAGE_DEMAND_BASE + 8192);
+        volatile u64 *c = (volatile u64 *)(PAGE_DEMAND_BASE + 4 * 1024 * 1024);
+
+        *a = 0x4141414141414141ULL;
+        *b = 0x4242424242424242ULL;
+        *c = 0x4343434343434343ULL;
+
+        if (*a == 0x4141414141414141ULL && *b == 0x4242424242424242ULL &&
+            *c == 0x4343434343434343ULL) {
+            u64 f, pdn, ptn, dat;
+            pf_stats(&f, &pdn, &ptn, &dat);
+            serial_puts("pf: ok faults=");
+            serial_puts_hex(f);
+            serial_puts(" pd=");
+            serial_puts_hex(pdn);
+            serial_puts(" pt=");
+            serial_puts_hex(ptn);
+            serial_puts(" pages=");
+            serial_puts_hex(dat);
+            serial_puts("\n");
+        } else {
+            serial_puts("pf: selftest FAILED (readback)\n");
+        }
+    }
 
     irq_init();
     sched_init();

@@ -17,7 +17,16 @@ struct trapframe {
     u64 rip, cs, rflags, rsp, ss;
 };
 
-void trap_init(void);
+/*
+ * Exception handlers may fix a fault and let the faulting instruction
+ * retry (return 1); anything that gives up must not return -
+ * exc_dispatch turns it into dump_trap. Only #PF demand paging uses
+ * the recover path today.
+ */
+typedef int (*exc_handler_t)(struct trapframe *tf);
 
-/* Dump the frame over serial and park the CPU (M2.1: no recovery yet). */
+void trap_init(void);
+void exc_set_handler(int vector, exc_handler_t fn);   /* vec 0..31 */
+
+/* Dump the frame over serial and park the CPU (M2.1 default). */
 void dump_trap(struct trapframe *tf) __attribute__((noreturn));

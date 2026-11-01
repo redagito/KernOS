@@ -1,13 +1,18 @@
 /*
- * Exception gate stubs, vectors 0..31.
+ * KernOS exception gate stubs, vectors 0..31.
  *
  * Two shapes: the CPU pushes an error code for DF/TS/NP/SS/GP/PF/AC
  * (vectors 8,10,11,12,13,14,17), the rest get a zero placeholder so
  * every stub builds the same frame shape.
  *
- * Frame: err, vec (pet stub), then 15 GPRs (RDI first, R15 last),
- * then the hardware frame. dump_trap() never returns: it prints and
- * parks (M2.1 policy - no recovery paths yet).
+ * Frame: err, vec (per stub), then 15 GPRs (RDI first, R15 last),
+ * then the hardware frame. Since M3.3 exceptions have a RETURNING
+ * path exactly like IRQs: exc_dispatch(tf) looks up a C handler.
+ *   - handler returns "fixed" (only #PF demand paging today):
+ *     exc_dispatch returns and the tail restores all regs, drops the
+ *     vec+err slots and iretq's - the faulting instruction retries.
+ *   - no handler / handler gives up: exc_dispatch calls dump_trap
+ *     (noreturn) - the M2.1 dump-and-park policy is unchanged.
  */
 
 .code64
@@ -19,7 +24,7 @@ trap_\vec:
     pushq $0                      /* no hardware err: uniform frame */
     .endif
     pushq $\vec
-    jmp trap_common
+    jmp trap_dispatch_common
 .endm
 
 TRAP 0,  1  /* #DE divide error */
@@ -84,7 +89,7 @@ IRQ 13
 IRQ 14
 IRQ 15
 
-trap_common:
+trap_dispatch_common:
     pushq %rdi
     pushq %rsi
     pushq %rdx
@@ -101,10 +106,24 @@ trap_common:
     pushq %r14
     pushq %r15
     movq  %rsp, %rdi
-    call  dump_trap
-1:  cli
-    hlt
-    jmp   1b
+    call  exc_dispatch          /* returns only for handled faults */
+    popq  %r15
+    popq  %r14
+    popq  %r13
+    popq  %r12
+    popq  %rbp
+    popq  %rbx
+    popq  %rax
+    popq  %r11
+    popq  %r10
+    popq  %r9
+    popq  %r8
+    popq  %rcx
+    popq  %rdx
+    popq  %rsi
+    popq  %rdi
+    addq  $16, %rsp                /* drop vec + err slots */
+    iretq
 
 irq_common:
     pushq %rdi

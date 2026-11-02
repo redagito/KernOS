@@ -135,8 +135,10 @@ as listed below.
   image header replacing the fat-image hack (that header is the boot
   ABI — a protocol, not a format invention; defined in
   docs/disk-layout.md).
-- **M5 — Userland**
-  Syscall ABI (defined in docs/syscall-abi.md when written), ELF64
+- **M5 — Userland** *(in progress; M5.1 landed — ABI v0: gate
+  machinery, probe/getpid/write, substrate-resumability invariants
+  in docs)*
+  Syscall ABI (docs/syscall-abi.md — normative since M5.1), ELF64
   loader, process model, our libc, init + shell + utilities.
 - **M5.5 — Compile C inside the OS** (TinyCC-fork path, locked 2026-11-01)
   KCC = our TinyCC fork (LGPL-2.1; fork policy and port surface

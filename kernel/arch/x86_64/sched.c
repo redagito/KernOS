@@ -108,3 +108,8 @@ u64 sched_switches(void)
 {
     return switches;
 }
+
+u64 sched_tid(void)
+{
+    return cur ? (u64)cur->id : (u64)-1;
+}

@@ -89,6 +89,51 @@ IRQ 13
 IRQ 14
 IRQ 15
 
+/* 0x80: the syscall gate (docs/syscall-abi.md). Same uniform frame
+   shape as the IRQ stubs; the C side is syscall_dispatch, whose only
+   mutation of the frame is RAX = return value. Interrupt gate: IF is
+   off inside the gate. */
+syscall_0x80:
+    pushq $0                         /* uniform frame: err placeholder */
+    pushq $0x80
+    jmp syscall_common
+
+syscall_common:
+    pushq %rdi
+    pushq %rsi
+    pushq %rdx
+    pushq %rcx
+    pushq %r8
+    pushq %r9
+    pushq %r10
+    pushq %r11
+    pushq %rax
+    pushq %rbx
+    pushq %rbp
+    pushq %r12
+    pushq %r13
+    pushq %r14
+    pushq %r15
+    movq  %rsp, %rdi
+    call  syscall_dispatch           /* sets tf->rax = return value */
+    popq  %r15
+    popq  %r14
+    popq  %r13
+    popq  %r12
+    popq  %rbp
+    popq  %rbx
+    popq  %rax
+    popq  %r11
+    popq  %r10
+    popq  %r9
+    popq  %r8
+    popq  %rcx
+    popq  %rdx
+    popq  %rsi
+    popq  %rdi
+    addq  $16, %rsp
+    iretq
+
 trap_dispatch_common:
     pushq %rdi
     pushq %rsi
@@ -212,5 +257,13 @@ trap_stub_table:
     .quad irq_13
     .quad irq_14
     .quad irq_15
+
+    /* Sparse stub table: index 0x80 exists (the syscall gate); every
+       vector in between stays permanently unassigned. idt_init knows
+       these slots must never hold an entry. */
+    .rept 80
+    .quad 0
+    .endr
+    .quad syscall_0x80               /* index 0x80 = 128 */
 
     .section .note.GNU-stack,"",@progbits

@@ -24,3 +24,6 @@ int  thread_spawn(const char *name, thread_fn entry, void *arg);
 void schedule(void);
 
 u64  sched_switches(void);
+
+/* Thread id of the calling thread (v0 syscall ABI: pid == tid). */
+u64  sched_tid(void);

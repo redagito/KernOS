@@ -117,6 +117,20 @@ void idt_init(void)
         idt[v].off_hi  = (addr >> 32) & 0xFFFFFFFF;
     }
 
+    /* v0x80: the syscall gate (docs/syscall-abi.md). Same interrupt
+       gate type as above but DPL 3 from day one: v0 callers are CPL0
+       kernel threads (DPL never raises the entry bar for them), and
+       M5.2's CPL3 callers enter the identical protocol unchanged. */
+    {
+        u64 saddr = stubs[0x80];
+        idt[0x80].off_lo  = saddr & 0xFFFF;
+        idt[0x80].cs      = SEL_CODE64;
+        idt[0x80].ist     = 0;
+        idt[0x80].attr    = 0xEE;      /* int gate, DPL 3, present */
+        idt[0x80].off_mid = (saddr >> 16) & 0xFFFF;
+        idt[0x80].off_hi  = (saddr >> 32) & 0xFFFFFFFF;
+    }
+
     union dt_ptr idtr;
     idtr.limit = sizeof idt - 1;
     idtr.base  = (u64)idt;

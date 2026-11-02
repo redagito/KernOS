@@ -21,7 +21,23 @@
 #include "fat32.h"
 #include <kernel/bench.h>
 #include <kernel/block.h>
+#include "arch/x86_64/syscall.h"
 #include "arch/x86_64/sched.h"
+#include "arch/x86_64/sched.h"
+
+/* M5.1: the v0 syscall ABI exercised from the caller side - the same
+   four-step shape userland will use (docs/syscall-abi.md). RAX carries
+   the number, RDI/RSI/RDX the args, RAX comes back the return. */
+static u64 sys_v0(u64 nr, u64 a1, u64 a2, u64 a3)
+{
+    u64 ret;
+    __asm__ __volatile__(
+        "int $0x80\n"
+        : "=a"(ret)
+        : "0"(nr), "D"(a1), "S"(a2), "d"(a3)
+        : "memory");
+    return ret;
+}
 
 static volatile u64 worker_reports;    /* lines printed across workers */
 
@@ -340,6 +356,39 @@ void kernel_main(void)
     serial_puts(" ticks=");
     putdec(pit_ticks());
     serial_puts("\n");
+
+    /* M5.1: syscall gate self-test - the ABI observed end to end, run
+       after sched_init so getpid answers truthfully (pid == tid, and
+       this thread is 0). The console write lands via the gate itself,
+       so the printed line IS the evidence for syscall nr 2. */
+    {
+        u64 pr = sys_v0(SYSCALL_PROBE, 77, 0, 0);
+        serial_puts(pr == 77 ? "syscall: probe ok ret=" : "syscall: probe FAILED ret=");
+        serial_puts_hex(pr);
+        serial_puts("\n");
+
+        u64 pid = sys_v0(SYSCALL_GETPID, 0, 0, 0);
+        serial_puts("syscall: getpid=");
+        serial_puts_hex(pid);
+        serial_puts("\n");
+        if (pid != 0)
+            serial_puts("syscall: getpid not thread 0 - check tids\n");
+
+        static const char sysmsg[] = "syscall: ABI v0 console write\n";
+        u64 want = sizeof sysmsg - 1;
+        u64 got  = sys_v0(SYSCALL_WRITE, STDOUT_FILENO, (u64)sysmsg, want);
+        serial_puts(got == want ? "syscall: write ok bytes=" : "syscall: write FAILED bytes=");
+        serial_puts_hex(got);
+        serial_puts("\n");
+
+        u64 badfd = sys_v0(SYSCALL_WRITE, 9, (u64)sysmsg, 4);
+        serial_puts(badfd == (u64)SYS_EINVAL ? "syscall: bad fd refused\n"
+                                             : "syscall: bad fd NOT refused\n");
+
+        u64 unk = sys_v0(77, 0, 0, 0);
+        serial_puts(unk == (u64)SYS_EINVAL ? "syscall: unknown nr refused\n"
+                                           : "syscall: unknown nr NOT refused\n");
+    }
 
 #if TRAP_SELFTEST
     vga_puts("selftest: int3\n");

@@ -55,6 +55,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
+	$(OBJ)/syscall.o \
 	$(OBJ)/swtch.o \
 	$(OBJ)/isr.o
 
@@ -202,6 +203,10 @@ $(OBJ)/ahci.o: kernel/arch/x86_64/ahci.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/fat32.o: kernel/fat32.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/syscall.o: kernel/arch/x86_64/syscall.c kernel/arch/x86_64/trap.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

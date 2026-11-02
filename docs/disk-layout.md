@@ -9,9 +9,52 @@ and the docs are the cross-check):
 |----------------|-------------------------------------------|-----------|
 | 0              | Stage 1 — our MBR (+ 0xAA55 at byte 510)  | 512 B     |
 | 1 .. 62        | Stage 2 (flat binary, linked at 0x7E00)   | ≤ 31,744 B|
-| 63             | Reserved (zeros)                          | 512 B     |
+| 63             | **KIH v1 image header — the boot ABI**    | 512 B     |
 | 64 .. 575      | Kernel flat binary at 0x100000            | ≤ 256 KiB |
 | 576 ..         | Free — future filesystem (FAT32, presumptive M4 choice)    | —         |
+
+## KIH v1: the image header (boot ABI, normative)
+
+LBA 63 carries the versioned image header `mkimage` plants. It is the
+protocol between the image builder and stage 2 — stage 2 trusts the
+checksummed bytes, never its own layout guesses. Fixed constants in
+stage 2 pin only the header's location and hard safety ceilings.
+
+| Offset | Size | Field          | Value / rule                                    |
+|--------|------|----------------|-------------------------------------------------|
+| 0x00   | 4    | magic          | `KIH1` (LE u32 `0x3148494B`)                    |
+| 0x04   | 1    | version        | 1                                               |
+| 0x05   | 1    | hdr_sectors    | 1                                               |
+| 0x06   | 2    | reserved       | 0                                               |
+| 0x08   | 4    | kernel_lba     | first sector of the kernel slot (currently 64)  |
+| 0x0C   | 4    | kernel_sectors | ≥ 1, ≤ 512 (slot ceiling; exact, not a guess)   |
+| 0x10   | 4    | kernel_entry   | must equal the fixed flat load addr 0x100000    |
+| 0x14   | 4    | flags          | 0                                               |
+| 0x18   | 4    | reserved       | 0                                               |
+| 0x1C   | 4    | hdr checksum   | additive: sum of ALL 128 header dwords == 0     |
+| 0x20   | 4    | kernel checksum| additive u32 over kernel_sectors × 512 bytes    |
+| 0x24.. | -    | (zeros)        | future fields live here, format grows downward  |
+
+Normative rules:
+
+1. **Checksums**: additive, 32-bit wrap-around, computed over raw
+   little-endian dwords. `mkimage` derives the header checksum slot so
+   the whole 512 B sector sums to 0; the kernel checksum spans the
+   sector-padded image exactly as it sits on the disk.
+2. **Validation is unconditional**: stage 2 checks magic, version,
+   `kernel_entry`, `kernel_lba > 63`, `1 ≤ kernel_sectors ≤ 512` **and
+   both checksums** before anything else loads or runs. Any failure is
+   the `'X'` phase halt — a corrupt image fails with a named phase, not
+   a mystery jump.
+3. **Size passing replaces slot trusting**: stage 2 loads exactly
+   `kernel_sectors` sectors from `kernel_lba` (the loader is chunked,
+   partial last command included), and verifies the payload checksum
+   after the load. The 256 KiB slot ceiling stays until the slot row
+   itself is re-planned; the header makes the *used* size honest well
+   before that.
+4. The header occupies transient RAM at 0x1000–0x11FF in stage 2 (free
+   per the map above, outside E820's 0x600–0x910); the region is dead
+   after the load — it is not a handoff ABI.
 
 ## Why stage 2 fits in track 0
 

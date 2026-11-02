@@ -6,11 +6,14 @@
  *
  *   LBA 0        stage 1 (our MBR, exactly 512 bytes incl. 0xAA55)
  *   LBA 1..62    stage 2 (flat binary, <= 62 * 512 bytes, zero-padded)
- *   LBA 63       reserved (zeros)
+ *   LBA 63       KIH v1 image header (the boot ABI: sizes + checksums)
  *   LBA 64..575  kernel flat image (<= 256 KiB, zero-padded)
  *   ...          image is padded to --size MiB (default 64)
  *
- * Exit status 0 = image written; anything else = refuse to lie.
+ * The header is the contract between mkimage and stage 2: stage 2
+ * validates magic, version, both additive checksums and the field
+ * bounds before it trusts anything. Exit status 0 = image written;
+ * anything else = refuse to lie.
  */
 
 #include <stdio.h>
@@ -18,11 +21,14 @@
 #include <string.h>
 
 #define SECTOR      512u
+#define KIH_LBA          63u
 #define STAGE2_LBA       1u
 #define STAGE2_SECTORS  62u
 #define KERNEL_LBA      64u
 #define KERNEL_SECTORS 512u
-#define IMAGE_SECTORS   (64u * 1024u * 1024u / SECTOR)  /* 64 MiB default */
+#define KIH_MAGIC   0x3148494Bu         /* 'K','I','H','1' little-endian */
+#define KIH_VERSION      1u
+#define KIH_ENTRY   0x100000u           /* flat kernel load address      */
 
 static unsigned char *slurp(const char *path, long *size_out) {
     FILE *f = fopen(path, "rb");
@@ -38,6 +44,26 @@ static unsigned char *slurp(const char *path, long *size_out) {
     fclose(f);
     *size_out = size;
     return buf;
+}
+
+static void wr_le32(unsigned char *p, unsigned v) {
+    p[0] = v & 0xFFu;
+    p[1] = (v >> 8) & 0xFFu;
+    p[2] = (v >> 16) & 0xFFu;
+    p[3] = (v >> 24) & 0xFFu;
+}
+
+static unsigned rd_le32(const unsigned char *p) {
+    return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
+}
+
+/* stage 2 sums raw little-endian dwords; mkimage must see the same
+   arithmetic, byte-by-byte, never host-endianness shortcuts. */
+static unsigned le_add(const unsigned char *p, unsigned bytes) {
+    unsigned sum = 0;
+    for (unsigned i = 0; i < bytes; i += 4)
+        sum += rd_le32(p + i);
+    return sum;
 }
 
 int main(int argc, char **argv) {
@@ -91,6 +117,46 @@ int main(int argc, char **argv) {
     memcpy(img + STAGE2_LBA * SECTOR, s2, (size_t)s2_size);
     memcpy(img + KERNEL_LBA * SECTOR, kern, (size_t)kern_size);
 
+    /* ----- KIH v1 image header (the boot ABI) ---------------------- */
+    unsigned kern_psectors = ((unsigned long)kern_size + SECTOR - 1) / SECTOR;
+    if (kern_psectors == 0) {
+        fprintf(stderr, "mkimage: empty kernel refuses to boot\n");
+        return 1;
+    }
+    if (kern_psectors > KERNEL_SECTORS) {   /* ceil'd, complements the raw check */
+        fprintf(stderr, "mkimage: kernel.bin = %ld bytes padded to %u sectors, slot holds %u\n",
+                kern_size, kern_psectors, KERNEL_SECTORS);
+        return 1;
+    }
+
+    /* payload checksum: over the EXACT byte span stage 2 will sum,
+       sector padding included (the disk bytes are identical). */
+    unsigned ksum = le_add(img + (size_t)KERNEL_LBA * SECTOR,
+                           kern_psectors * SECTOR);
+
+    unsigned char *h = img + (size_t)KIH_LBA * SECTOR;
+    wr_le32(h + 0x00, KIH_MAGIC);
+    h[0x04] = KIH_VERSION;              /* version          */
+    h[0x05] = 1;                        /* hdr_sectors: one */
+    wr_le32(h + 0x08, KERNEL_LBA);
+    wr_le32(h + 0x0C, kern_psectors);
+    wr_le32(h + 0x10, KIH_ENTRY);
+    wr_le32(h + 0x14, 0);               /* flags    */
+    wr_le32(h + 0x18, 0);               /* reserved */
+    wr_le32(h + 0x20, ksum);            /* kernel payload checksum */
+
+    /* self-checksum: negative additive sum so the whole-sector total
+       (stage 2's validation) wraps to 0. Computed, then re-verified. */
+    unsigned hs = 0;
+    for (unsigned o = 0; o < SECTOR; o += 4)
+        if (o != 0x1C)
+            hs += rd_le32(h + o);
+    wr_le32(h + 0x1C, 0u - hs);
+    if (le_add(h, SECTOR) != 0) {
+        fprintf(stderr, "mkimage: KIH checksum did not close (internal bug)\n");
+        return 1;
+    }
+
     FILE *out = fopen(out_path, "wb");
     if (!out) { fprintf(stderr, "mkimage: cannot create %s\n", out_path); return 1; }
     size_t total = (size_t)image_sectors * SECTOR;
@@ -100,7 +166,9 @@ int main(int argc, char **argv) {
     }
     fclose(out);
 
-    printf("mkimage: %s, %lu MiB, stage2 %ld B kernel %ld B\n",
-           out_path, size_mib, s2_size, kern_size);
+    printf("mkimage: %s, %lu MiB, stage2 %ld B kernel %ld B (%u sect)\n",
+           out_path, size_mib, s2_size, kern_size, kern_psectors);
+    printf("mkimage: kih v1 lba=%u ksectors=%u entry=0x%x kchk=0x%08x\n",
+           KIH_LBA, kern_psectors, KIH_ENTRY, ksum);
     return 0;
 }

@@ -2,19 +2,25 @@
  * KernOS boot stage 2.
  *
  * Linked at 0x7E00 as a flat binary, loaded by stage 1 (LBA 1..62).
- * Fixed disk layout, see docs/disk-layout.md; the kernel image lives at
- * LBA 64 and is exactly KERNEL_SECTORS sectors (no size passing needed
- * until the kernel outgrows 256 KiB — then we add a proper image header).
+ *
+ * The kernel slot at LBA 64 is described by the versioned image header
+ * (KIH v1) that mkimage plants at LBA 63: stage 2 reads it, validates
+ * magic/version/checksums, then loads EXACTLY the sectors the header
+ * names and verifies the payload checksum before jumping to the entry
+ * point the header declares. Fixed constants below only pin the header
+ * location and hard safety ceilings; the header is the boot ABI — a
+ * protocol, not a layout guess (docs/disk-layout.md is normative).
  *
  * Responsibilities, in order:
  *   1. A20 (int 15h AX=2401, then port 0x92; both applied).
  *   2. Silence interrupts for good: both PICs masked, drive nIEN set.
  *      From here on the chain is self-polling and never calls BIOS again.
  *   3. Enter protected mode (our GDT, PE=1) — permanently.
- *   4. Load the kernel image (LBA 64..) to 0x100000 with direct ATA PIO
- *      reads through the task-file ports (same discipline as stage 1):
- *      2 MiB-page commands of 128 sectors each, REP INSW with the flat
- *      data segment addressing 0x100000+. No bounce buffer, no BIOS.
+ *   4. Read + validate the KIH header (LBA 63), then load the kernel
+ *      image it describes at 0x100000 with direct ATA PIO reads through
+ *      the task-file ports (same discipline as stage 1): chunked
+ *      commands up to CHUNK_SECTORS each, REP INSW with the flat data
+ *      segment addressing 0x100000+. No bounce buffer, no BIOS.
  *   5. Page tables at 0x20000: identity-map the first 1 GiB with 2 MiB
  *      pages: PML4[0] -> PDPT[0] -> PD[i] = i*2MiB | P|RW|PS.
  *   6. PAE (CR4.PAE), LME (EFER.LME, MSR 0xC0000080 bit 8), PG (CR0.PG),
@@ -27,13 +33,17 @@
  *   - boot drive preserved in stage2's (now dead) memory — the kernel
  *     will carry it properly once we hand over a real boot params struct.
  *
- * COM1 phase sensors 'U','L','P','K','X' name the last phase reached.
+ * COM1 phase sensors 'U','M','H','L','P','K','X' name the last phase
+ * reached.
  */
 
     /* ----- Configuration (docs/disk-layout.md is normative) ----- */
-    .set KERNEL_LBA,     64        /* kernel image first sector */
-    .set KERNEL_SECTORS, 512       /* 256 KiB fixed kernel slot */
-    .set CHUNK_SECTORS,  128       /* sectors per ATA command (8-bit reg) */
+    .set HEADER_LBA,     63        /* KIH v1 image header sector */
+    .set HEADER_AT,      0x1000    /* low-RAM scratch the header lands in */
+    .set KIH_MAGIC,      0x3148494B /* 'K','I','H','1' little-endian */
+    .set KERNEL_LBA,     64        /* kernel slot first LBA (header-checked) */
+    .set KERNEL_MAX_SECTORS, 512   /* kernel slot hard ceiling: 256 KiB */
+    .set CHUNK_SECTORS,  128       /* max sectors per ATA command (8-bit reg) */
     .set KERNEL_ADDR,    0x100000
     .set PT_PML4,        0x20000
     .set PT_PDPT,        0x21000
@@ -177,79 +187,84 @@ pm_entry:
     movw %ax, %ss
     movl $STACK_TOP, %esp
 
-    /* ----- Direct ATA PIO kernel load: LBA 64.. 512 sectors -----
-       Flat ES:EDI addresses 0x100000 directly. 128-sector commands
-       (the count register is 8 bits; 256 would mean 0 in the register,
-       which is legal but 128 keeps the loop bookkeeping obvious).      */
+    /* ----- KIH v1 image header: 1 sector, LBA HEADER_LBA -> HEADER_AT.
+       Flat ES:EDI again (ES base 0). The header names kernel_lba,
+       kernel_sectors and kernel_entry; stage 2 trusts the checksummed
+       bytes, not its own layout guesses (docs/disk-layout.md). ----- */
+    movl $HEADER_LBA, %ebp
+    movl $HEADER_AT, %edi
+    movl $1, %esi
+    call pio_read
 
-    movl $0x1F6, %edx                  /* device 0, LBA28 */
-    movb $0xE0, %al
-    outb %al, %dx
-
-    movl $KERNEL_ADDR, %edi            /* ES:EDI, flat */
-    movl $KERNEL_LBA, %ebp             /* next LBA */
-    movl $KERNEL_SECTORS / CHUNK_SECTORS, %esi   /* 4 commands */
-
-load_chunk:
-    movw $0x1F2, %dx                   /* sector count = 128 */
-    movb $CHUNK_SECTORS, %al
-    outb %al, %dx
-
-    movl %ebp, %eax
-    movw $0x1F3, %dx                   /* LBA bits 7..0 */
-    outb %al, %dx
-    movl %ebp, %eax
-    shrl $8, %eax
-    movw $0x1F4, %dx                   /* LBA bits 15..8 */
-    outb %al, %dx
-    movl %ebp, %eax
-    shrl $16, %eax
-    movw $0x1F5, %dx                   /* LBA bits 23..16 */
-    outb %al, %dx
-    movl %ebp, %eax
-    shrl $24, %eax
-    andb $0x0F, %al
-    orb $0xE0, %al                     /* LBA bits 27..24 + dev 0 */
-    movw $0x1F6, %dx
-    outb %al, %dx
-
-    movw $0x1F7, %dx                   /* READ SECTORS LBA28 (0x20) */
-    movb $0x20, %al
-    outb %al, %dx
-
-    movl $CHUNK_SECTORS, %ebx          /* sectors left in this command */
-sector_loop:
-    movw $0x1F7, %dx                   /* status: wait BSY=0, ERR kill */
-    movw $0xFFFF, %cx                  /* bounded wait (~1s of spinning) */
-wait_drq:
-    inb %dx, %al
-    testb $0x80, %al                   /* BSY */
-    jnz wait_tick
-    testb $0x01, %al                   /* ERR: drive refuses */
+    /* magic */
+    cmpl $KIH_MAGIC, (HEADER_AT)
     jnz stage2_fail
-    testb $0x08, %al                   /* DRQ: data ready */
-    jnz have_drq
-wait_tick:
-    loop wait_drq
-    jmp stage2_fail
+    /* version */
+    movzbl HEADER_AT+4, %eax
+    cmpl $1, %eax
+    jnz stage2_fail
+    /* header must describe the slot this chain can actually enter:
+       the entry point is the fixed flat kernel image position. */
+    cmpl $KERNEL_ADDR, HEADER_AT+0x10
+    jnz stage2_fail
+    /* kernel_lba: beyond the header itself */
+    movl HEADER_AT+8, %eax
+    cmpl $HEADER_LBA+1, %eax
+    jb stage2_fail
+    /* kernel_sectors: at least 1, at most the 256-KiB slot ceiling */
+    movl HEADER_AT+0xC, %eax
+    testl %eax, %eax
+    jz stage2_fail
+    cmpl $KERNEL_MAX_SECTORS, %eax
+    ja stage2_fail
+    /* header self-checksum: additive sum of the whole sector's dwords
+       (checksum slot at 0x1C makes the total wrap to 0). */
+    movl $HEADER_AT, %edi
+    movl $128, %ecx
+    xorl %esi, %esi
+kih_sum:
+    addl (%edi), %esi
+    addl $4, %edi
+    decl %ecx
+    jnz kih_sum
+    testl %esi, %esi
+    jnz stage2_fail
 
-have_drq:
-    movw $256, %cx                     /* one sector = 256 words; REP INSW
-                                          advances EDI 512 bytes itself.
-                                          16-bit DX = the data port. */
-    movw $0x1F0, %dx
-    rep
-    insw                               /* ES:EDI, flat -> 0x100000+ */
-    decl %ebx
-    jnz sector_loop
+    movl $0x3F8, %edx                  /* phase 'H': header read + valid */
+    movb $'H', %al
+    outb %al, %dx
 
-    addl $CHUNK_SECTORS, %ebp
-    decl %esi
-    jnz load_chunk
+    /* remember the payload checksum (stack survives everything below) */
+    movl HEADER_AT+0x20, %eax
+    pushl %eax
+
+    /* ----- Direct ATA PIO kernel load, per the header:
+       kernel_sectors from kernel_lba to 0x100000. Chunked commands
+       (the count register is 8 bits; 128 keeps the loop bookkeeping
+       obvious). Flat ES:EDI addresses 0x100000 directly. ----- */
+    movl HEADER_AT+8, %ebp             /* kernel_lba */
+    movl $KERNEL_ADDR, %edi            /* ES:EDI, flat */
+    movl HEADER_AT+0xC, %esi           /* sector count, exact */
+    call pio_read
 
     movl $0x3F8, %edx                  /* phase 'L': kernel image in RAM */
     movb $'L', %al
     outb %al, %dx
+
+    /* payload checksum: additive sum over the loaded image's dword
+       span (sector-padded, mkimage sums the identical bytes). */
+    popl %esi                          /* expected sum */
+    movl $KERNEL_ADDR, %edi
+    movl HEADER_AT+0xC, %ecx
+    shll $7, %ecx                      /* sectors * 512 / 4 dwords */
+    xorl %eax, %eax
+kih_payload:
+    addl (%edi), %eax
+    addl $4, %edi
+    decl %ecx
+    jnz kih_payload
+    cmpl %esi, %eax
+    jnz stage2_fail
 
     /* ----- Page tables: identity-map 1 GiB with 2 MiB pages ----- */
     /* PML4[0] -> PDPT, PDPT[0] -> PD: Present | Writable */
@@ -329,12 +344,99 @@ long_halt:
     jmp long_halt
 
 stage2_fail:
-    movl $0x3F8, %edx                  /* phase 'X': load/tables failed */
+    movl $0x3F8, %edx                  /* phase 'X': header/load/tables failed */
     movb $'X', %al
     outb %al, %dx
     cli
     hlt
     jmp stage2_fail
+
+/* ---------------------------------------------------------------------
+   pio_read: ATA PIO LBA28 reader, chunked to CHUNK_SECTORS max per
+   command. Same T13 discipline as stage 1: bounded BSY waits, ERR is
+   fatal. Any lie in the media or in the header ends in stage2_fail.
+   In:  %ebp = first LBA, %edi = flat ESP dest, %esi = sector count.
+   Out: %edi advanced past the load; everything else clobbered.
+   Clobbers: eax ebx ecx edx esi edi.
+   (Assembled .code32: this runs in protected mode; the whole long-mode
+   tail above is reachable, its bytes are shared, nothing returns here
+   into 64-bit state.)
+   --------------------------------------------------------------------- */
+    .code32
+pio_read:
+    pushl %ebp                         /* lived across the chunk loop */
+    movl $0x1F6, %edx                  /* device 0, LBA28 */
+    movb $0xE0, %al
+    outb %al, %dx
+
+chunk_loop:
+    cmpl $0, %esi
+    jz pio_done
+    movl %esi, %eax                    /* this command: min(esi, CHUNK) */
+    cmpl $CHUNK_SECTORS, %eax
+    jbe 1f
+    movl $CHUNK_SECTORS, %eax
+1:  pushl %eax                         /* chunk count (for the epilogue)   */
+    pushl %eax                         /* chunk count (the sector counter) */
+    movw $0x1F2, %dx
+    outb %al, %dx                      /* sector count (<= 128) */
+
+    movl %ebp, %eax
+    movw $0x1F3, %dx                   /* LBA bits 7..0 */
+    outb %al, %dx
+    movl %ebp, %eax
+    shrl $8, %eax
+    movw $0x1F4, %dx                   /* LBA bits 15..8 */
+    outb %al, %dx
+    movl %ebp, %eax
+    shrl $16, %eax
+    movw $0x1F5, %dx                   /* LBA bits 23..16 */
+    outb %al, %dx
+    movl %ebp, %eax
+    shrl $24, %eax
+    andb $0x0F, %al
+    orb $0xE0, %al                     /* LBA bits 27..24 + dev 0 */
+    movw $0x1F6, %dx
+    outb %al, %dx
+
+    movw $0x1F7, %dx                   /* READ SECTORS LBA28 (0x20) */
+    movb $0x20, %al
+    outb %al, %dx
+
+    popl %ebx                          /* sectors left in this command */
+pio_sector:
+    movw $0x1F7, %dx                   /* status: wait BSY=0, ERR kill */
+    movw $0xFFFF, %cx                  /* bounded wait (~1s of spinning) */
+pio_wait_drq:
+    inb %dx, %al
+    testb $0x80, %al                   /* BSY */
+    jnz pio_wait_tick
+    testb $0x01, %al                   /* ERR: drive refuses */
+    jnz stage2_fail
+    testb $0x08, %al                   /* DRQ: data ready */
+    jnz pio_have_drq
+pio_wait_tick:
+    loop pio_wait_drq
+    jmp stage2_fail
+
+pio_have_drq:
+    movw $256, %cx                     /* one sector = 256 words; REP INSW
+                                          advances EDI 512 bytes itself.
+                                          16-bit DX = the data port. */
+    movw $0x1F0, %dx
+    rep
+    insw                               /* ES:EDI, flat */
+    decl %ebx
+    jnz pio_sector
+
+    popl %eax                          /* this command's sector count */
+    addl %eax, %ebp
+    subl %eax, %esi
+    jmp chunk_loop
+
+pio_done:
+    popl %ebp
+    ret
 
 /* Data lives in .text: flat binary, RAM at 0x7e00+ is writable, and the
    boot image has no separate loading sections. */

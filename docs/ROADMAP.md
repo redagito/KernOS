@@ -126,8 +126,10 @@ as listed below.
   Physical page allocator, kernel virtual allocator, slab-ish object
   cache, 4 KiB page fault handling; kernel virtual map with a proper
   higher-half (no more fixed boot slots).
-- **M4 — Persistence** *(in progress; AHCI 4.2 + FAT32 4.3 done in QEMU,
-  host test harness added)*
+- **M4 — Persistence** *(complete in QEMU, pending real-hardware test;
+  M4.1 PCI + M4.2 AHCI + M4.3 FAT32 host-testable via the block seam +
+  M4.4 KIH v1 image header; mkfs = deterministic tools/mkfat32; see
+  docs/disk-layout.md for the bench fixture and the header ABI)*
   PCI enumeration, AHCI driver (spec §ours), FAT32 (existing specced
   format; read/write) on the OS disk, `mkfs` host tool, boot-chain
   image header replacing the fat-image hack (that header is the boot

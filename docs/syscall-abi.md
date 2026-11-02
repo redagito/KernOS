@@ -91,5 +91,12 @@ neighbor — designed to look like the one it neighbors.
 | Kernel version | Caller                 | Notes                    |
 |----------------|------------------------|--------------------------|
 | v0 (M5.1)      | kernel threads         | gate machinery + gate self-test |
-| M5.2           | CPL3 processes         | pointer validation, real pids, `exit` |
+| M5.2 (landed)  | CPL3 processes         | pointer validation live, real pids, `exit` (nr 3) |
 | M5.3+          | same, more numbers     | `open/read/close`, exec, mmap...  |
+
+M5.2 notes: the substrate invariant held exactly as written - blocking-
+shaped work needed NO new machinery, because the first non-returning
+syscall (`exit`) simply parked the captured frame's thread in the
+scheduler (zombie + swtch-away) through the ordinary paths. Pointer
+validation at the gate: P|U walk over the caller's CR3 for CPL3
+callers only (kernel-side v0 callers skip it).

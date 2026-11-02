@@ -56,6 +56,8 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
 	$(OBJ)/syscall.o \
+	$(OBJ)/proc.o \
+	$(OBJ)/userprog.o \
 	$(OBJ)/swtch.o \
 	$(OBJ)/isr.o
 
@@ -209,6 +211,30 @@ $(OBJ)/fat32.o: kernel/fat32.c
 $(OBJ)/syscall.o: kernel/arch/x86_64/syscall.c kernel/arch/x86_64/trap.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/proc.o: kernel/arch/x86_64/proc.c kernel/arch/x86_64/proc.h
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+# -----
+# Userland (M5.2): freestanding C -> flat blob -> embedded into the
+# kernel image. Same C discipline as the kernel: no red zone, no SSE,
+# no bss in the blob (user.ld forbids NOLOAD sections).
+# -----
+
+$(OBJ)/user1.o: kernel/user/u1.c include/kernel/syscall.h
+	@mkdir -p $(@D)
+	$(CC) -std=c11 -m64 -ffreestanding -fno-builtin -fno-stack-protector \
+		-fno-pie -fno-pic -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
+		-msoft-float -O2 -Wall -Wextra -I$(INC) -c -o $@ $<
+
+$(BUILD)/user1.bin: $(OBJ)/user1.o kernel/user/user.ld
+	$(LD) -nostdlib -T kernel/user/user.ld -o $(BUILD)/user1.elf $<
+	$(OBJCOPY) -O binary $(BUILD)/user1.elf $@
+
+$(OBJ)/userprog.o: kernel/arch/x86_64/userprog.s $(BUILD)/user1.bin
+	@mkdir -p $(@D)
+	$(AS) -o $@ $<
 
 $(OBJ)/swtch.o: kernel/arch/x86_64/swtch.s
 	@mkdir -p $(@D)

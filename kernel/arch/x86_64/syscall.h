@@ -12,3 +12,6 @@
  */
 
 void syscall_dispatch(struct trapframe *tf);
+
+/* Count of completed user exits (M5.2 boot-gate evidence). */
+u64  sysc_user_exits(void);

@@ -24,6 +24,10 @@ SECTIONS
 
     .rodata : { *(.rodata*) }
 
+    /* M5.2: embedded user blobs. Kept as its own section so the next
+       milestone (ELF loader) can drop it without touching anything. */
+    .userprog : { *(.userprog*) }
+
     . = ALIGN(16);
     .data : { *(.data*) }
 

@@ -13,6 +13,7 @@
 #define SYSCALL_PROBE   0    /* probe(arg1) -> arg1          */
 #define SYSCALL_GETPID  1    /* getpid() -> thread id        */
 #define SYSCALL_WRITE   2    /* write(fd=1, buf, n) -> bytes */
+#define SYSCALL_EXIT    3    /* exit(code): never returns    */
 
 #define STDIN_FILENO  0      /* v0: input undefined (kbd arrives M5) */
 #define STDOUT_FILENO 1      /* v0: COM1 console                */

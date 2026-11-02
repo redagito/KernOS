@@ -137,7 +137,8 @@ as listed below.
   docs/disk-layout.md).
 - **M5 — Userland** *(in progress; M5.1 landed — ABI v0: gate
   machinery, probe/getpid/write, substrate-resumability invariants
-  in docs)*
+  in docs; M5.2 landed — CPL3 process model: per-process CR3, first
+  userlands speaking the ABI, exit as the first non-returning syscall)*
   Syscall ABI (docs/syscall-abi.md — normative since M5.1), ELF64
   loader, process model, our libc, init + shell + utilities.
 - **M5.5 — Compile C inside the OS** (TinyCC-fork path, locked 2026-11-01)

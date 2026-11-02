@@ -6,10 +6,14 @@
  *
  * The GDT mirrors stage 2's layout exactly (null, code32, data, code16,
  * code64) with the same descriptor VALUES: CS=0x20/DS=ES=SS=0x10 loaded
- * from stage 2 therefore stay valid when we replace GDTR. At offset
- * 0x28 we install a 64-bit TSS跨界 descriptor only for one purpose
- * right now: IST1, the dedicated fault stack, so that #DF/#NMI/#MC can
- * switch to a known-good stack and still produce a readable dump.
+ * from stage 2 therefore stay valid when we replace GDTR. M5.2 adds
+ * CPL3 code/data descriptors at 0x30/0x38 for the process model; the
+ * TSS moved down the list to 0x40 to make room (nothing outside this
+ * file ever named the old 0x28 selector). The TSS exists for IST1 -
+ * the dedicated fault stack so #DF/#NMI/#MC land on known-good ground
+ * - and since M5.2 also carries a *variable* rsp0: the scheduler
+ * re-points it at each user thread's kernel stack so gate/IRQ frames
+ * arriving from CPL3 land in that thread's own stack.
  */
 
 union dt_ptr {           /* GDTR/LIDTR operand shape */
@@ -29,9 +33,15 @@ union dt_ptr {           /* GDTR/LIDTR operand shape */
 
 #define SEL_DATA     0x10
 #define SEL_CODE64   0x20
-#define SEL_TSS      0x28
+#define SEL_TSS      0x40               /* moved below the user segs    */
+#define SEL_USER_CS  0x30               /* CPL3 code (selector 0x33)    */
+#define SEL_USER_DS  0x38               /* CPL3 data (selector 0x3B)    */
 
-static u64 kernel_gdt[7];            /* 5 entries + 2 for the TSS pair */
+/* CPL3 (M5.2): user CS: L=1, DPL3. user DS: DPL3. */
+#define GDT_USER_CS  0x00A0FA000000FFFFULL
+#define GDT_USER_DS  0x00A0F2000000FFFFULL
+
+static u64 kernel_gdt[10];           /* 5 legacy slots + 1 pad + 2 user + 2 tss */
 
 static struct {
     u32 res0;
@@ -58,15 +68,19 @@ void gdt_init(void)
     kernel_gdt[2] = GDT_DATA;
     kernel_gdt[3] = GDT_CODE16;
     kernel_gdt[4] = GDT_CODE64;
+    kernel_gdt[5] = 0;               /* pad: keeps numbering readable  */
+    kernel_gdt[6] = GDT_USER_CS;
+    kernel_gdt[7] = GDT_USER_DS;
 
-    /* 64-bit TSS system descriptor (SYS, type 0x89), limit = size-1. */
+    /* 64-bit TSS system descriptor (SYS, type 0x89), limit = size-1.
+       Moved from 0x28 to 0x40 in M5.2: SEL_TSS is the only reference. */
     u64 base = (u64)&kernel_tss;
     u32 tss_bytes = sizeof kernel_tss;   /* must be 104 */
-    kernel_gdt[5] = (u64)((tss_bytes - 1) & 0xFFFF)
+    kernel_gdt[8] = (u64)((tss_bytes - 1) & 0xFFFF)
                   | ((base & 0xFFFFFFULL) << 16)
                   | (0x89ULL << 40)
                   | (((base >> 24) & 0xFFULL) << 56);
-    kernel_gdt[6] = (base >> 32) & 0xFFFFFFFFULL;
+    kernel_gdt[9] = (base >> 32) & 0xFFFFFFFFULL;
 
     kernel_tss.rsp0 = (u64)stack_top;
     kernel_tss.ist[0] = (u64)(fault_stack + 512);
@@ -136,4 +150,12 @@ void idt_init(void)
     idtr.base  = (u64)idt;
 
     __asm__ volatile("lidt (%0)" : : "r"(&idtr) : "memory");
+}
+
+void tss_rsp0_set(u64 rsp0)
+{
+    /* On 64-bit the CPU reads rsp0 from the TSS *memory* at every
+       privilege transition (the descriptor is only a base/limit);
+       assignments after ltr simply take effect. */
+    kernel_tss.rsp0 = rsp0;
 }

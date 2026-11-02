@@ -113,7 +113,7 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
     return i;
 }
 
-int thread_spawn_user(const char *name, const void *blob, u64 blob_len)
+int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
 {
     int i = find_free_slot();
     if (i < 0) {
@@ -123,15 +123,17 @@ int thread_spawn_user(const char *name, const void *blob, u64 blob_len)
 
     struct thread *t = &threads[i];
     t->nframes = 0;                  /* ledger starts empty            */
-    u64 cr3 = proc_build_space(blob, blob_len, t->frames, &t->nframes);
+    u64 entry = 0;
+    u64 cr3 = proc_build_space_elf(elf, elf_len, t->frames,
+                                   &t->nframes, &entry);
     if (!cr3)
         return -1;
 
-    t->id     = i;
-    t->name   = name;
-    t->cr3    = cr3;
-    fill_ctx(t, (u64)proc_user_entry, 0);
-    t->state  = T_RUNNABLE;          /* LAST: see above, no half-built slot */
+    t->id   = i;
+    t->name = name;
+    t->cr3  = cr3;
+    fill_ctx(t, (u64)proc_user_entry, entry);
+    t->state = T_RUNNABLE;           /* LAST: see above, no half-built slot */
 
     serial_puts("spawn-user ");
     serial_puts(name);

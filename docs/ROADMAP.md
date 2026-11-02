@@ -138,7 +138,10 @@ as listed below.
 - **M5 — Userland** *(in progress; M5.1 landed — ABI v0: gate
   machinery, probe/getpid/write, substrate-resumability invariants
   in docs; M5.2 landed — CPL3 process model: per-process CR3, first
-  userlands speaking the ABI, exit as the first non-returning syscall)*
+  userlands speaking the ABI, exit as the first non-returning syscall;
+  M5.3 landed — ELF64 loader: userland comes from the FAT disk via
+  the portable elf64_plan module + host tests, nothing user-related
+  inside the kernel image)*
   Syscall ABI (docs/syscall-abi.md — normative since M5.1), ELF64
   loader, process model, our libc, init + shell + utilities.
 - **M5.5 — Compile C inside the OS** (TinyCC-fork path, locked 2026-11-01)

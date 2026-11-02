@@ -19,10 +19,12 @@
  * (make benchdisk / make hosttest regenerate them).
  */
 
-/* raw AHCI tests (block markers, below the file system) */
+/* raw AHCI tests (block markers, below the file system). M5.3 moved
+   both outward (+6 LBAs): U1.ELF rides clusters 5.. (mkfat32 asserts
+   the chain ends before cluster 16; the markers breathe after it). */
 #define BENCH_DISK_SECTORS 262144u       /* 128 MiB / 512              */
-#define BENCH_MARKER_LBA   4076u         /* 'KERNOSDISK\1\2\3', read   */
-#define BENCH_WRITE_LBA    4084u         /* write-verify target        */
+#define BENCH_MARKER_LBA   4082u         /* 'KERNOSDISK\1\2\3', read   */
+#define BENCH_WRITE_LBA    4090u         /* write-verify target        */
 #define BENCH_MARKER_LEN   13u
 
 /* FAT32 fixture files at the root directory */
@@ -32,3 +34,8 @@
 
 #define BENCH_LONG_FILE   "VERYLONGNAME.TXT"   /* forces LFN entries   */
 #define BENCH_LONG_BODY   "long filename file body\n"
+
+/* M5.3: the first real userland program rides the fixture. mkfat32
+   plants it at the first free clusters (5+); the kernel reads it with
+   the ordinary fat_read_file path and hands it to the ELF64 loader. */
+#define BENCH_U1_FILE     "U1.ELF"

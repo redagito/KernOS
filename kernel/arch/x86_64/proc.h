@@ -3,7 +3,7 @@
 #include <kernel/types.h>
 
 /*
- * Process model (M5.2): first real address spaces.
+ * Process model (M5.3): real address spaces built from real binaries.
  *
  * Layout decision (frozen): user code+data lives at 0x400000 inside the
  * identity 2-MiB slot i2=2; the user stack (16 KiB) ends at 0x600000,
@@ -11,8 +11,8 @@
  * hierarchy (clone PML4 -> clone PDPT -> clone PD) with one patch: PD
  * slot 2 turns the 2-MiB identity leaf into a PT of 4-KiB user pages.
  * Everything outside that window stays supervisor-only, so CPL3 code
- * can touch exactly what this module mapped: its code pages and its
- * stack - which is the whole point of per-process spaces.
+ * can touch exactly what this module mapped - which is why segments
+ * outside the window are a loader refusal, not a mapping.
  *
  * Known debt (documented, do not "fix" silently):
  *  - demand-region page tables (>= 0x40000000) are shared with the
@@ -22,24 +22,27 @@
  *    user demand usage ever; revisit only when forking exists.
  *  - user->kernel switches are only made through the scheduler paths
  *    in sched.c; nothing else may load a process CR3.
+ *  - no W^X split yet (no NX bits, no fault-on-write tracks). The
+ *    ELF loader maps everything P|U|W; KCC/M6 work revisits.
  */
 
-#define USER_ENTRY_VA   0x400000ULL   /* entry = first byte of code     */
-#define USER_STACK_VA   0x600000ULL   /* stack top (grows down)         */
+#define USER_WINDOW_LO  0x400000ULL   /* first mapped VA (cloned PD i2=2) */
+#define USER_STACK_VA   0x600000ULL   /* stack top (grows down)           */
 #define USER_STACK_SZ   (16 * 1024)
-#define USER_MAX_BLOB   8192          /* code pages budget: 2 frames    */
+#define USER_MAX_PAGES  8             /* code+data span cap (32 KiB)      */
 
-/* Frame ledger cap: 4 tables + 2 code pages + 4 stack pages. */
-#define MAX_PFRAMES 10
+/* Frame ledger cap: 4 page tables + 8 span pages + 4 stack pages. */
+#define MAX_PFRAMES 16
 
-/*
- * Build one user address space: boot-table clones + code pages copied
- * from blob + zeroed 16-KiB stack. Returns the root PML4 PA (0 = no
- * memory), and hands back every frame it allocated through frames[]
- * (up to 10) so exit can hand them back to the pmm deliberately.
- */
-u64  proc_build_space(const void *blob, u64 blob_len,
-                      u64 *frames, int *nframes);
+/* Build one user address space from a resident ELF64 image (validated
+   by the portable elf64_plan module): boot-table clones, span pages
+   copied/zeroed per the PT_LOAD plan, zeroed 16-KiB stack. Returns
+   the root PML4 PA (0 = refusal of any kind) and fills frames[] /
+   entry_out; the entry point comes from the Ehdr and is checked to
+   live inside the mapped span. Source buffer must identity-mapped
+   (kernel VA space) but may live anywhere. */
+u64  proc_build_space_elf(const void *elf, u64 elf_len,
+                          u64 *frames, int *nframes, u64 *entry_out);
 
 /* Return all frames of a dead space to the pmm. Call only from a CR3
    whose identity map covers the whole free RAM (< 1 GiB boot map), NOT
@@ -48,7 +51,7 @@ u64  proc_build_space(const void *blob, u64 blob_len,
 void proc_space_destroy(const u64 *frames, int nframes);
 
 /* First "return" of a user thread: from kernel context, load the CPL3
-   data selectors and iretq into (0x400000, ss 0x3B, stack, rflags IF).
+   data selectors and iretq to (entry, ss 0x3B, stack top, rflags IF).
    CR3 must already be this thread's space (scheduler guarantees it).
    Never returns into C: the thread exits via syscall 3 from userland. */
-void proc_user_entry(void) __attribute__((noreturn));
+void proc_user_entry(u64 entry) __attribute__((noreturn));

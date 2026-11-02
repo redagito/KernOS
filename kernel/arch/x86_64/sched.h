@@ -20,9 +20,10 @@ void sched_init(void);
    scheduler preempts (sti lives in main after spawning). */
 int  thread_spawn(const char *name, thread_fn entry, void *arg);
 
-/* Spawn a user process: blob (max USER_MAX_BLOB bytes at 0x400000).
-   Same preemption-free assumptions as thread_spawn. */
-int  thread_spawn_user(const char *name, const void *blob, u64 blob_len);
+/* Spawn a user process from a resident ELF64 image (validated +
+   loaded by proc_build_space_elf). Same preemption-free assumptions
+   as thread_spawn. */
+int  thread_spawn_user(const char *name, const void *elf, u64 elf_len);
 
 /* Call from the tick handler (IRQ context, IF=0). */
 void schedule(void);

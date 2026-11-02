@@ -55,9 +55,9 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
+	$(OBJ)/elf64.o \
 	$(OBJ)/syscall.o \
 	$(OBJ)/proc.o \
-	$(OBJ)/userprog.o \
 	$(OBJ)/swtch.o \
 	$(OBJ)/isr.o
 
@@ -121,11 +121,11 @@ $(BUILD)/mkfat32: tools/mkfat32.c include/kernel/bench.h
 .PHONY: benchdisk hosttest
 benchdisk: $(BUILD)/ahcidisk.img
 
-$(BUILD)/ahcidisk.img: $(BUILD)/mkfat32
-	$(BUILD)/mkfat32 $(BUILD)/ahcidisk.img
+$(BUILD)/ahcidisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf
+	$(BUILD)/mkfat32 $(BUILD)/ahcidisk.img $(BUILD)/u1.elf
 
-$(BUILD)/testdisk.img: $(BUILD)/mkfat32
-	$(BUILD)/mkfat32 $(BUILD)/testdisk.img
+$(BUILD)/testdisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf
+	$(BUILD)/mkfat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf
 
 $(BUILD)/test_fat32: tests/test_fat32.c tests/blk_host.c kernel/fat32.c \
 		include/kernel/block.h kernel/fat32.h include/kernel/bench.h \
@@ -134,8 +134,18 @@ $(BUILD)/test_fat32: tests/test_fat32.c tests/blk_host.c kernel/fat32.c \
 	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -o $@ \
 		tests/test_fat32.c tests/blk_host.c kernel/fat32.c
 
-hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32
+# The ELF64 module runs on the host exactly like the kernel will: parse
+# and validate, refuse everything that is not what it claims;
+# test_elf64 exercises both the synthetic reject cases and the real
+# U1.ELF the fixture rides.
+$(BUILD)/test_elf64: tests/test_elf64.c kernel/elf64.c \
+		include/kernel/elf64.h include/kernel/types.h
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_elf64.c kernel/elf64.c
+
+hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img
+	$(BUILD)/test_elf64 $(BUILD)/u1.elf
 
 # -----
 # Compilation
@@ -212,14 +222,19 @@ $(OBJ)/syscall.o: kernel/arch/x86_64/syscall.c kernel/arch/x86_64/trap.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 
+$(OBJ)/elf64.o: kernel/elf64.c include/kernel/elf64.h
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
 $(OBJ)/proc.o: kernel/arch/x86_64/proc.c kernel/arch/x86_64/proc.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 # -----
-# Userland (M5.2): freestanding C -> flat blob -> embedded into the
-# kernel image. Same C discipline as the kernel: no red zone, no SSE,
-# no bss in the blob (user.ld forbids NOLOAD sections).
+# Userland (M5.3): freestanding C -> real ELF64 executable -> planted
+# into the FAT fixture (mkfat32 argv). The kernel loads it from disk
+# through fat_read_file + elf64_plan; nothing user-related is embedded
+# in the kernel image anymore.
 # -----
 
 $(OBJ)/user1.o: kernel/user/u1.c include/kernel/syscall.h
@@ -228,13 +243,8 @@ $(OBJ)/user1.o: kernel/user/u1.c include/kernel/syscall.h
 		-fno-pie -fno-pic -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
 		-msoft-float -O2 -Wall -Wextra -I$(INC) -c -o $@ $<
 
-$(BUILD)/user1.bin: $(OBJ)/user1.o kernel/user/user.ld
-	$(LD) -nostdlib -T kernel/user/user.ld -o $(BUILD)/user1.elf $<
-	$(OBJCOPY) -O binary $(BUILD)/user1.elf $@
-
-$(OBJ)/userprog.o: kernel/arch/x86_64/userprog.s $(BUILD)/user1.bin
-	@mkdir -p $(@D)
-	$(AS) -o $@ $<
+$(BUILD)/u1.elf: $(OBJ)/user1.o kernel/user/u1.ld
+	$(LD) -nostdlib -T kernel/user/u1.ld -o $@ $<
 
 $(OBJ)/swtch.o: kernel/arch/x86_64/swtch.s
 	@mkdir -p $(@D)

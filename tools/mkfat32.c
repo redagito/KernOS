@@ -11,11 +11,16 @@
  *       [2]      VERYLO~1TXT       (the long file's short entry)
  *       [3]      0xE5...           deleted-entry decoy (must be skipped)
  *       [4]      KERNOS.TXT        (short 8.3 entry)
- *       [5]      0x00 terminator; rest zero
+ *       [5]      U1.ELF            (the userland program, M5.3)
+ *       [6]      0x00 terminator; rest zero
  *   - fixture data from include/kernel/bench.h (shared with the kernel
  *     boot gates and host unit tests).
  *   - raw bench markers planted in the DATA area, with layout
  *     self-checks that refuse any collision with allocated clusters.
+ *
+ * argv: mkfat32 <image-file> <u1-elf-path> - the userland binary is
+ * planted at clusters 5.. so the kernel loads its first processes from
+ * the disk, not from its own image.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -93,12 +98,52 @@ static void lfn_entry(u8 *dir, u32 slot, u8 seqbit, const char *name, u8 chk)
     (void)seq;
 }
 
+/* Load a whole file for planting (the u1 ELF). NULL on failure. */
+static u8 *read_file(const char *path, u32 *out_len, u32 cap)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return 0;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (n < 0 || (u32)n > cap) {
+        fclose(f);
+        return 0;
+    }
+    u8 *p = malloc(n ? (u32)n : 1);
+    if (!p) {
+        fclose(f);
+        return 0;
+    }
+    if (n && fread(p, 1, (u32)n, f) != (u32)n) {
+        free(p);
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    *out_len = (u32)n;
+    return p;
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <image-file>\n", argv ? argv[0] : "mkfat32");
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s <image-file> <u1-elf-path>\n",
+                argv ? argv[0] : "mkfat32");
         return 2;
     }
+
+    /* the program that userland will run: read it BEFORE anything else
+       so a bad path is a clean tool error, not a half-built image */
+    u32 u1_len = 0;
+    u8 *u1 = read_file(argv[2], &u1_len, 16 * 1024);
+    if (!u1 || (*u1 != 0x7F)) {
+        fprintf(stderr, "mkfat32: cannot read a valid u1 elf '%s'\n", argv[2]);
+        free(u1);
+        return 1;
+    }
+    u32 u1_clusters = (u1_len + SECTOR - 1) / SECTOR;
 
     /* ---- geometry: fat_secs = ceil((total-r-2S)*4/512) fixpoint ---- */
     u32 fat_secs = 2048;
@@ -125,9 +170,11 @@ int main(int argc, char **argv)
     }
     u32 marker_clus = BENCH_MARKER_LBA - data_start + 2;
     u32 rb_clus     = BENCH_WRITE_LBA  - data_start + 2;
-    if (marker_clus < 5) {               /* clusters 2..4 are allocated   */
-        fprintf(stderr, "mkfat32: marker LBA %u inside allocated clusters "
-                        "(data_start=%u)\n", BENCH_MARKER_LBA, data_start);
+    /* clusters 2,3,4 fixed by the fixture; U1.ELF takes 5 .. 4+u1_clusters;
+       the AHCI raw markers must start after all of it */
+    if (marker_clus < 5 + u1_clusters) {
+        fprintf(stderr, "mkfat32: marker LBA %u collides with the U1.ELF "
+                        "chain (%u clusters)\n", BENCH_MARKER_LBA, u1_clusters);
         return 1;
     }
     if (BENCH_WRITE_LBA <= BENCH_MARKER_LBA || rb_clus <= marker_clus ||
@@ -175,8 +222,8 @@ int main(int argc, char **argv)
     u8 *fsi = img + lba_off(1);
     wr32(fsi, 0x000, 0x41615252);
     wr32(fsi, 0x1E8, 0x61417272);
-    wr32(fsi, 0x1EC, clusters - 3);          /* clusters 2..4 allocated */
-    wr32(fsi, 0x1F0, 5);                     /* next free cluster       */
+    wr32(fsi, 0x1EC, clusters - 3 - u1_clusters);   /* 2..4 + u1 chain */
+    wr32(fsi, 0x1F0, 5 + u1_clusters);              /* next free       */
 
     /* ---- backup boot sector ------------------------------------------ */
     memcpy(img + lba_off(6), img, SECTOR);
@@ -189,6 +236,9 @@ int main(int argc, char **argv)
         wr32(T, 2 * 4, 0x0FFFFFFFu);     /* root dir: one cluster          */
         wr32(T, 3 * 4, 0x0FFFFFFFu);     /* KERNOS.TXT                     */
         wr32(T, 4 * 4, 0x0FFFFFFFu);     /* VERYLONGNAME.TXT               */
+        for (u32 c = 5; c < 5 + u1_clusters - 1; ++c)
+            wr32(T, c * 4, c + 1);       /* U1.ELF chain                   */
+        wr32(T, (4 + u1_clusters) * 4, 0x0FFFFFFFu);   /* chain end       */
     }
 
     /* ---- root directory ---------------------------------------------- */
@@ -223,7 +273,16 @@ int main(int argc, char **argv)
         e[0x1A] = 4;                         /* first cluster (lo,hi)=4,0 */
         e[0x1C] = (u8)strlen(BENCH_LONG_BODY);
     }
-    /* slot 5 onward: zero (terminator covered by the zeroed image) */
+    /* slot 5: U1.ELF - the userland program (M5.3) */
+    {
+        u8 *e = D + 5 * 32;
+        memset(e, 0, 32);
+        memcpy(e, "U1      ELF", 11);        /* base + ext, space padded */
+        e[11]  = 0x20;
+        e[0x1A] = 5;                         /* first cluster            */
+        wr32(e, 0x1C, u1_len);               /* exact size, LO u32       */
+    }
+    /* slot 6 onward: zero (terminator covered by the zeroed image) */
 
     /* ---- file bodies: cluster 3 @ data_start+1, cluster 4 @ +2 ------- */
     memcpy(img + lba_off(data_start + 1), BENCH_SEED, strlen(BENCH_SEED));
@@ -234,6 +293,14 @@ int main(int argc, char **argv)
            BENCH_MARKER_LEN);
     /* BENCH_WRITE_LBA is left zero: the write-verify drives its own
        pattern round-trip. */
+
+    /* ---- U1.ELF body: clusters 5 .. 4+u1_clusters --------------------- */
+    u32 u1_left = u1_len;
+    for (u32 c = 0; c < u1_clusters; ++c) {
+        u32 chunk = u1_left > SECTOR ? SECTOR : u1_left;
+        memcpy(img + lba_off(data_start + 3 + c), u1 + c * SECTOR, chunk);
+        u1_left -= chunk;
+    }
 
     FILE *fp = fopen(argv[1], "wb");
     if (!fp) { perror(argv[1]); return 1; }
@@ -246,6 +313,22 @@ int main(int argc, char **argv)
 
     printf("total=%u reserved=%u fat_secs=%u data_start=%u clusters=%u\n",
            TOTAL_SECTORS, RESERVED, fat_secs, data_start, clusters);
+    /* read back the planted dir entry: a planter bug (like a size
+       field that silently truncates) must be a tool error, not a
+       kernel boot surprise */
+    {
+        const u8 *e = D + 5 * 32;
+        u32 sz = e[0x1C] | (e[0x1D] << 8) | (e[0x1E] << 16) | ((u32)e[0x1F] << 24);
+        if (memcmp(D + 5 * 32, "U1      ELF", 11) != 0 || sz != u1_len) {
+            fprintf(stderr, "mkfat32: U1.ELF entry read-back mismatch "
+                            "(name ok=%d size=%u want %u)\n",
+                    memcmp(D + 5 * 32, "U1      ELF", 11) == 0, sz, u1_len);
+            free(u1);
+            return 1;
+        }
+    }
+    printf("mkfat32: planted U1.ELF %u bytes (%u clusters, first cluster 5)\n",
+           u1_len, u1_clusters);
     printf("mkfat32: ok\n");
     return 0;
 }

@@ -23,10 +23,6 @@
 #include <kernel/block.h>
 #include "arch/x86_64/syscall.h"
 #include "arch/x86_64/sched.h"
-#include "arch/x86_64/proc.h"
-
-extern const u8 _userprog_start[];         /* userprog.s embed */
-extern const u8 _userprog_end[];
 #include "arch/x86_64/sched.h"
 
 /* M5.1: the v0 syscall ABI exercised from the caller side - the same
@@ -394,16 +390,26 @@ void kernel_main(void)
                                            : "syscall: unknown nr NOT refused\n");
     }
 
-    /* M5.2: the first real userland. Two CPL3 processes speak through
-       the same gate, interleave under PIT preemption, and exit via
-       SYSCALL_EXIT (nr 3) - the first syscall that never comes back. */
-    thread_spawn_user("D", _userprog_start,
-                      (u64)(_userprog_end - _userprog_start));
-    thread_spawn_user("E", _userprog_start,
-                      (u64)(_userprog_end - _userprog_start));
+    /* M5.3: the first real userland - read U1.ELF from the FAT fixture
+       through the very same block seam the benches used, then let the
+       ELF64 loader plan two processes out of it. Nothing user-related
+       rides inside the kernel image; the disk is now the program
+       source of truth. */
+    static u8 u1_img[16384];
+    int users = 0;
+    {
+        long got = fat_read_file(BENCH_U1_FILE, u1_img, sizeof u1_img);
+        serial_puts("elf: U1.ELF read bytes=");
+        serial_puts_hex((u64)got);
+        serial_puts("\n");
+        if (got > 64) {
+            if (thread_spawn_user("D", u1_img, (u64)got) >= 0) users++;
+            if (thread_spawn_user("E", u1_img, (u64)got) >= 0) users++;
+        }
+    }
     serial_puts("sched: spawned user D+E\n");
 
-    while (sysc_user_exits() < 2)
+    while (users == 2 && sysc_user_exits() < 2)
         __asm__ volatile("hlt");
     serial_puts("gate: users exited cleanly - exits=");
     putdec(sysc_user_exits());

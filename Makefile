@@ -143,9 +143,17 @@ $(BUILD)/test_elf64: tests/test_elf64.c kernel/elf64.c \
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_elf64.c kernel/elf64.c
 
-hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64
+hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
+	$(BUILD)/test_format
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
+	$(BUILD)/test_format
+
+# vsnprintf is libc's one portable-holy module: it answers for itself
+# on the host, so the boot gate never has to prove formatting.
+$(BUILD)/test_format: tests/test_format.c libc/src/format.c
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Ilibc/include -o $@ tests/test_format.c libc/src/format.c
 
 # -----
 # Compilation
@@ -231,20 +239,38 @@ $(OBJ)/proc.o: kernel/arch/x86_64/proc.c kernel/arch/x86_64/proc.h
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 # -----
-# Userland (M5.3): freestanding C -> real ELF64 executable -> planted
-# into the FAT fixture (mkfat32 argv). The kernel loads it from disk
-# through fat_read_file + elf64_plan; nothing user-related is embedded
-# in the kernel image anymore.
+# Userland (M5.4): libc + freestanding C programs. Programs need only
+# their own object + build/libc.a; the loader side of the kernel is
+# untouched by this milestone, the boot gate revalidates everything.
+# The printf core (format.c) is host-testable; the syscall front is
+# exercised by the boot gate itself.
 # -----
 
-$(OBJ)/user1.o: kernel/user/u1.c include/kernel/syscall.h
-	@mkdir -p $(@D)
-	$(CC) -std=c11 -m64 -ffreestanding -fno-builtin -fno-stack-protector \
-		-fno-pie -fno-pic -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
-		-msoft-float -O2 -Wall -Wextra -I$(INC) -c -o $@ $<
+UFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin -fno-stack-protector \
+	-fno-pie -fno-pic -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
+	-fno-asynchronous-unwind-tables -msoft-float \
+	-O2 -Wall -Wextra -I$(INC) -Ilibc/include
 
-$(BUILD)/u1.elf: $(OBJ)/user1.o kernel/user/u1.ld
-	$(LD) -nostdlib -T kernel/user/u1.ld -o $@ $<
+LIBC_SRC := libc/src/crt0.c libc/src/format.c libc/src/stdio.c \
+	libc/src/string.c libc/src/stdlib.c libc/src/unistd.c
+
+LIBC_OBJ := $(patsubst libc/src/%.c,$(OBJ)/lc_%.o,$(LIBC_SRC))
+
+$(OBJ)/lc_%.o: libc/src/%.c
+	@mkdir -p $(@D)
+	$(CC) $(UFLAGS) -c -o $@ $<
+
+$(BUILD)/libc.a: $(LIBC_OBJ)
+	@mkdir -p $(@D)
+	ar rcs $@ $^
+
+$(OBJ)/user1.o: kernel/user/u1.c include/kernel/syscall.h \
+		libc/include/stdio.h libc/include/unistd.h
+	@mkdir -p $(@D)
+	$(CC) $(UFLAGS) -c -o $@ $<
+
+$(BUILD)/u1.elf: $(OBJ)/user1.o $(BUILD)/libc.a kernel/user/u1.ld
+	$(LD) -nostdlib -T kernel/user/u1.ld -o $@ $(OBJ)/user1.o $(BUILD)/libc.a
 
 $(OBJ)/swtch.o: kernel/arch/x86_64/swtch.s
 	@mkdir -p $(@D)

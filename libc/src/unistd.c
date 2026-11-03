@@ -1,0 +1,39 @@
+#include <kernel/syscall.h>
+
+#include <stddef.h>
+#include <unistd.h>
+
+/*
+ * unistd.c - the syscall front. One barrier shape, reused everywhere
+ * (docs/syscall-abi.md): RAX = number, RDI/RSI/RDX = args, RAX back.
+ * Everything except RAX survives; that is what "preserved" means.
+ */
+
+static long gate(long nr, long a1, long a2, long a3)
+{
+    long ret;
+    register long sc __asm__("rax") = nr;   /* r10 is arg4 in the ABI */
+    register long r1 __asm__("rdi") = a1;   /* shape: never maps slots
+                                               r10+ from C except vx  */
+    register long r2 __asm__("rsi") = a2;
+    register long r3 __asm__("rdx") = a3;
+    (void)r1; (void)r2; (void)r3;
+    __asm__ __volatile__("int $0x80"
+                         : "=a"(ret)
+                         : "0"(sc), "r"(r1), "r"(r2), "r"(r3)
+                         : "memory");
+    return ret;
+}
+
+ssize_t write(int fd, const void *buf, size_t n)
+{
+    long r = gate(SYSCALL_WRITE, fd, (long)buf, (long)n);
+    if (r < 0)
+        return -1;
+    return (ssize_t)r;
+}
+
+long getpid(void)
+{
+    return gate(SYSCALL_GETPID, 0, 0, 0);
+}

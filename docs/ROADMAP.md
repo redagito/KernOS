@@ -141,7 +141,8 @@ as listed below.
   userlands speaking the ABI, exit as the first non-returning syscall;
   M5.3 landed — ELF64 loader: userland comes from the FAT disk via
   the portable elf64_plan module + host tests, nothing user-related
-  inside the kernel image)*
+  inside the kernel image; M5.4 landed — our libc: crt0/printf/
+  string/exit over the gate, vsnprintf core host-tested)*
   Syscall ABI (docs/syscall-abi.md — normative since M5.1), ELF64
   loader, process model, our libc, init + shell + utilities.
 - **M5.5 — Compile C inside the OS** (TinyCC-fork path, locked 2026-11-01)

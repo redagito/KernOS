@@ -171,10 +171,17 @@ int main(int argc, char **argv)
     u32 marker_clus = BENCH_MARKER_LBA - data_start + 2;
     u32 rb_clus     = BENCH_WRITE_LBA  - data_start + 2;
     /* clusters 2,3,4 fixed by the fixture; U1.ELF takes 5 .. 4+u1_clusters;
-       the AHCI raw markers must start after all of it */
-    if (marker_clus < 5 + u1_clusters) {
+       the AHCI markers sleep behind a DECLARED reserve (bench.h), not
+       behind u1's current size - program growth must never move them */
+    if (u1_clusters > BENCH_U1_MAX_SECTORS) {
+        fprintf(stderr, "mkfat32: U1.ELF needs %u clusters, bench reserve "
+                        "is %u\n", u1_clusters, BENCH_U1_MAX_SECTORS);
+        return 1;
+    }
+    if (marker_clus < 5 + BENCH_U1_MAX_SECTORS) {
         fprintf(stderr, "mkfat32: marker LBA %u collides with the U1.ELF "
-                        "chain (%u clusters)\n", BENCH_MARKER_LBA, u1_clusters);
+                        "reserve (%u clusters)\n", BENCH_MARKER_LBA,
+                BENCH_U1_MAX_SECTORS);
         return 1;
     }
     if (BENCH_WRITE_LBA <= BENCH_MARKER_LBA || rb_clus <= marker_clus ||

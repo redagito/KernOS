@@ -18,13 +18,19 @@ SECTIONS
 {
     . = 0x400000;
 
-    .text : { *(.text*) } :all
+    .text : { *(.text.crt0) *(.text*) } :all
 
     .rodata : { *(.rodata*) } :all
 
     .data : { *(.data*) } :all
 
-    /DISCARD/ : { *(.comment) *(.note*) *(.gnu.*) }
+    /* statics of the libc/userland: nobits inside the same LOAD
+       segment -> p_memsz grows past p_filesz, and the kernel's
+       loader zeroes pages before the segment bytes land, which IS
+       the bss semantics (proc.c comment). */
+    .bss (NOLOAD) : { *(.bss*) *(COMMON) } :all
+
+    /DISCARD/ : { *(.eh_frame*) *(.comment) *(.note*) *(.gnu.*) }
 
     ASSERT(SIZEOF(.text) + SIZEOF(.rodata) + SIZEOF(.data) <= 32768,
            "u1 exceeds the 32 KiB user span budget")

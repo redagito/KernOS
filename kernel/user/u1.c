@@ -1,57 +1,32 @@
 /*
- * u1 - the first KernOS userland program (M5.2).
+ * u1 - the first KernOS userland program, now written like one (M5.4).
  *
- * Freestanding C (no libc yet - that is M5.4), linked flat at
- * 0x400000 by user.ld, embedded into the kernel image, copied into a
- * fresh address space by proc_build_space and entered at CPL3.
- *
- * The whole surface it uses is the v0 syscall ABI: int 0x80 with
- * RAX = number (docs/syscall-abi.md). It speaks (write), identifies
- * itself (getpid), and terminates honestly (exit) - the first
- * synchronized interleave of two processes on this OS.
+ * Freestanding C living on the KernOS libc (printf/puts/getpid over
+ * the int 0x80 gate, exit via crt0's _exit). Its job in the boot gate
+ * is unchanged: prove that two processes can speak C, interleave
+ * under PIT preemption, and die honestly - now with the formatting
+ * work no longer hand-baked into each line.
  */
 
-#include <kernel/syscall.h>
+#include <stdio.h>
+#include <unistd.h>
 
-static long sys(long nr, long a1, long a2, long a3)
+static void chatter(int me, int n)
 {
-    long r;
-    __asm__ __volatile__("int $0x80"
-                         : "=a"(r)
-                         : "0"(nr), "D"(a1), "S"(a2), "d"(a3)
-                         : "memory");
-    return r;
+    /* busy wait ~2e7 cycles so both users visibly interleave under
+       PIT preemption rather than zip through */
+    for (volatile long v = 0; v < 20000000; ++v)
+        ;
+    printf("u1: pid=%d tick=%d\n", me, n);
 }
 
-static long puts_len(const char *s)
+int main(void)
 {
-    long n = 0;
-    while (s[n])
-        n++;
-    return sys(SYSCALL_WRITE, STDOUT_FILENO, (long)s, n);
-}
+    int me = getpid();
+    printf("u1: pid=%d hello from CPL3\n", me);
 
-void _start(void)
-{
-    long me = sys(SYSCALL_GETPID, 0, 0, 0);
+    for (int i = 1; i <= 4; ++i)
+        chatter(me, i);
 
-    char hello[] = "u1: pid=0 hello from CPL3\n";
-    hello[8] = (char)('0' + me);
-    puts_len(hello);
-
-    for (int i = 1; i <= 4; ++i) {
-        /* busy wait ~2e7 cycles so both users visibly interleave
-           under PIT preemption rather than zip through */
-        for (volatile long v = 0; v < 20000000; ++v)
-            ;
-
-        char line[] = "u1: pid=0 tick=0\n";
-        line[8]  = (char)('0' + me);
-        line[15] = (char)('0' + i);
-        puts_len(line);
-    }
-
-    sys(SYSCALL_EXIT, 0, 0, 0);
-    for (;;)
-        ;                                  /* not reached */
+    return 0;                       /* crt0 turns this into exit(0) */
 }

@@ -28,13 +28,16 @@
  *
  * State on entry to the kernel:
  *   - 64-bit, CPL0, identity-mapped 1 GiB, interrupts off (PICs masked)
- *   - BIOS VGA text mode intact (0xB8000 is inside the map)
+ *   - VBE linear framebuffer mode active if the emulated card offered
+ *     one (handoff block at 0x0A00, docs/disk-layout.md); else text mode
+ *     (0xB8000 is inside the map either way)
  *   - DS/ES/SS = our 4 GiB flat data segment, RSP = 0x78000
  *   - boot drive preserved in stage2's (now dead) memory — the kernel
  *     will carry it properly once we hand over a real boot params struct.
  *
- * COM1 phase sensors 'U','M','H','L','P','K','X' name the last phase
- * reached.
+ * COM1 phase sensors 'U','M','V','H','L','P','K','X' name the last phase
+ * reached ('V' only on a confirmed VEB LFB mode set; absence is a
+ * signal too - the kernel keeps a text console, not a lie).
  */
 
     /* ----- Configuration (docs/disk-layout.md is normative) ----- */
@@ -55,6 +58,33 @@
     .set E820_COUNT,     0x600
     .set E820_DATA,      0x608
     .set E820_MAX,       32
+
+    /* VBE handoff (docs/disk-layout.md, boot ABI, M5.6): written ONLY
+       on a confirmed mode set. Width==0 there means "no fb" - that is
+       information, not failure; the kernel keeps a text console. */
+    .set FB_INFO_AT,     0x0A00
+    /* ModeInfoBlock scratch (transient, dead after the copy). */
+    .set MIB_AT,         0x0C00
+    /* VbeInfoBlock scratch (512 B, transient: dead past PM entry —
+       so is the KIH strip at 0x1000, but VEB runs before that read). */
+    .set VIB_AT,         0x0E00
+
+    /* Bochs VBE dispi ports (QEMU VLAN documented; primary path M5.6):
+       register-level mode set with NO BIOS cooperation. Widely
+       emulated ('VGA'/'bochs-display'), and the emitted mode is plain
+       geometry, not a vt list lookup. */
+    .set DISPI_INDEX,    0x01CE
+    .set DISPI_DATA,     0x01CF
+    .set DISPI_ID,       0
+    .set DISPI_XRES,     1
+    .set DISPI_YRES,     2
+    .set DISPI_BPP,      3
+    .set DISPI_ENABLE,   4
+    .set DISPI_VWIDTH,   7
+    .set DISPI_ENABLED,  0x01
+    .set DISPI_LFB,      0x40
+    .set FB_W,           1024       /* deterministic budget: 1024x768x32 */
+    .set FB_H,           768        /* = 3 MB ble: vmem 16 MB default ok */
 
     .set SEL_CODE32, 0x08
     .set SEL_DATA,   0x10
@@ -155,6 +185,298 @@ e820_done:
     movl $0x3F8, %edx                  /* phase 'M': memory map captured */
     movb $'M', %al
     outb %al, %dx
+
+    /* ----- VBE: set a linear-framebuffer graphics mode (M5.6). This is
+       the LAST display BIOS call, made while interrupts are still on in
+       real mode. Candidates in order; the first that sets AND validates
+       wins. The handoff block at FB_INFO_AT is pre-zeroed and written
+       only on success, so width==0 downstream means an honest "no fb".
+       A dead/absent card is a handoff of absence - boot continues in
+       text mode, no halt, no guess. Phase 'V' = mode confirmed. ----- */
+
+    /* zero the handoff block (and it stays zero on every failure path) */
+    movl $FB_INFO_AT, %edi
+    movl $0, (%edi)                    /* width = 0 */
+    movl $0, 4(%edi)
+    movl $0, 8(%edi)
+    movl $0, 12(%edi)
+    movl $0, 16(%edi)
+    movl $0, 20(%edi)
+
+    /* ----- PRIMARY: Bochs dispi (register-level, no BIOS). Find the
+       display device via config space (class 0x03 on bus 0), latch its
+       BAR0 (the std VGA LFB), program 1024x768x32 through the dispi
+       ports. On any refusal fall to the enumerating BIOS path below —
+       never a halt: absence stays an honest handoff. ----- */
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_ID, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    inw %dx, %ax                       /* ax = id (bochs: 0xB0C0..0xB0C5) */
+    andl $0xFFF8, %eax
+    cmpl $0xB0C0, %eax
+    jne vbe_enum_start                 /* no dispi: BIOS fallback */
+
+    /* locate the display device: bus 0, dev d, BAR0 = offset 0x10,
+       class register = offset 0x08 (base class is bit 23..16). */
+    movl $0x80000000, %ecx             /* probe addr: dev 0, fn 0 */
+pci_dev_next:
+    movl %ecx, %eax
+    orl $0x08, %eax
+    movl $0xCF8, %edx
+    outl %eax, %dx
+    movl $0xCFC, %edx
+    inl  %dx, %eax
+    shrl $24, %eax                     /* base class = byte 3 of reg 0x08 */
+    cmpb $0x03, %al
+    jne pci_dev_advance
+
+    movl %ecx, %eax                    /* vendor: 0xFFFF = absent slot */
+    movl $0xCF8, %edx
+    outl %eax, %dx
+    movl $0xCFC, %edx
+    inl  %dx, %eax
+    cmpl $0x0000FFFF, %eax             /* low dword of vendor+device */
+    je  pci_dev_advance
+
+    movl %ecx, %eax
+    orl  $0x10, %eax                   /* BAR0 */
+    movl $0xCF8, %edx
+    outl %eax, %dx
+    movl $0xCFC, %edx
+    inl  %dx, %eax
+    testl %eax, %eax
+    jz   pci_dev_advance
+    andl $0xFFFFFF00, %eax             /* 32-bit mem BAR: low byte flags */
+    jmp  dispi_have_phys
+pci_dev_advance:
+    addl $0x00000800, %ecx             /* next device slot (1 << 11) */
+    cmpl $0x81000000, %ecx             /* walk device 0..31... */
+    jb pci_dev_next
+    jmp vbe_enum_start                 /* no display device: fallback */
+
+dispi_have_phys:
+    movl %eax, vbe_phys_scratch
+
+    /* program the mode: disable, geometry, virtual width (= pitch),
+       enable with LFB. */
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_ENABLE, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    xorw %ax, %ax
+    outw %ax, %dx                      /* enable = 0 */
+
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_XRES, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    movw $FB_W, %ax
+    outw %ax, %dx
+
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_YRES, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    movw $FB_H, %ax
+    outw %ax, %dx
+
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_BPP, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    movw $32, %ax
+    outw %ax, %dx
+
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_VWIDTH, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    movw $FB_W, %ax                    /* virt width = xres: pitch = xres*4 */
+    outw %ax, %dx
+
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_ENABLE, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    movw $(DISPI_ENABLED | DISPI_LFB), %ax
+    outw %ax, %dx
+
+    /* handoff: the geometry we just programmed + the PCI truth */
+    movl $FB_W, %eax
+    movl %eax, FB_INFO_AT
+    movl $FB_H, %eax
+    movl %eax, FB_INFO_AT+4
+    /* pitch = xres * 4 (bpp 32) */
+    movl $(FB_W * 4), %eax
+    movl %eax, FB_INFO_AT+8
+    movl $32, %eax
+    movl %eax, FB_INFO_AT+12
+    movl vbe_phys_scratch, %eax
+    movl %eax, FB_INFO_AT+16
+    movl $0, FB_INFO_AT+20
+
+    movl $0x3F8, %edx                  /* phase 'V': LFB mode set + info */
+    movb $'V', %al
+    outb %al, %dx
+    jmp vbe_done
+
+vbe_enum_start:
+    /* ----- FALLBACK: enumerate the card's own list (4F00),
+       interrogate each entry (4F01), keep the largest 32 bpp LFB mode.
+       No mode-number folklore: the card's list is the truth. Falls
+       back further to the static candidate table when enumeration
+       fails. ----- */
+    movw $0x4F00, %ax                  /* GetVbeInfoBlock -> ES:DI */
+    movw $VIB_AT, %di
+    int $0x10
+    cmpb $0x4F, %al
+    jnz vbe_enum_fail
+    cmpb $0x00, %ah
+    jnz vbe_enum_fail
+    cmpl $0x41534556, VIB_AT           /* 'V','E','S','A' LE */
+    jnz vbe_enum_fail
+
+    movw $0, %bx                       /* tried-modes counter */
+
+    /* walk VideoModePtr at (seg=VIB+0x0C, off=VIB+0x0E) via %gs, keep
+       ES=0 for every 4F01 call below. %bp = best area (u32), 0 = none. */
+    movw VIB_AT+0x0C, %gs              /* list segment */
+    movw VIB_AT+0x0E, %si              /* list offset */
+    movl $0, %ebp                      /* best = none */
+vbe_list_next:
+    movw %gs:(%si), %dx
+    cmpw $0xFFFF, %dx                  /* 0xFFFF terminator */
+    jz vbe_list_done
+    addw $2, %si
+    incw %bx                           /* tried-modes counter (debug) */
+
+    movw $0x4F01, %ax                  /* GetModeInfoBlock for DX */
+    movw %dx, %cx
+    andw $0x3FFF, %cx
+    movw $MIB_AT, %di
+    int $0x10
+    cmpb $0x4F, %al
+    jnz vbe_list_info_fail
+    cmpb $0x00, %ah
+    jz vbe_list_have_info
+vbe_list_info_fail:
+    jmp vbe_list_next
+vbe_list_have_info:
+    /* attr: present(bit0) | graphics(bit4). The LFB ability itself is
+       NOT trusted to the attr table - some vgabios lineages omit bit7 -
+       PhysBasePtr != 0 below is the load-bearing check. */
+    movzbl MIB_AT+0x00, %eax
+    andl $0x11, %eax
+    cmpl $0x11, %eax
+    jnz vbe_list_next
+
+    movzbl MIB_AT+0x19, %eax           /* bits-per-pixel */
+    cmpl $32, %eax
+    jnz vbe_list_next
+
+    movl MIB_AT+0x28, %eax             /* PhysBasePtr: must exist   */
+    testl %eax, %eax
+    jz vbe_list_next
+
+    /* area = XRes * YRes (u16 * u16 -> u32); keep the biggest.
+       32-bit imul on zero-extended words: the .code16 one-operand
+       'imull' form would compute in DX:AX and lose the high half into
+       DX (which also destroys the candidate mode register). */
+    movzwl MIB_AT+0x12, %eax
+    movzwl MIB_AT+0x14, %ecx
+    imull %ecx, %eax
+    cmpl %ebp, %eax
+    jbe vbe_list_next
+    movl %eax, %ebp
+    movw %dx, vbe_best                 /* remember the winning mode */
+
+vbe_list_done:
+    testl %ebp, %ebp
+    jz vbe_enum_fail
+    /* self-inject the winner as the FIRST candidate: the stage-2 flat
+       image is writable RAM, and the candidate loop below still owns
+       every set/info/validate step - the scanner only changes who
+       gets tried first. */
+    movw vbe_best, %ax
+    movw %ax, vbe_modes
+    movw $0, vbe_modes+2               /* ...then end the table right there */
+
+vbe_enum_fail:
+    movw $0, %si                       /* candidate index */
+vbe_next_mode:
+    movw %si, %bx
+    shlw $1, %bx
+    movw vbe_modes(%bx), %dx           /* DX = candidate mode */
+    testw %dx, %dx
+    jz vbe_none                        /* table drained: no fb; block stays 0 */
+
+
+    /* mode set: int 10h AX=4F02, BX = mode (bit 14 = LFB flag is IN the
+       candidate table already; enum-injected modes need the OR). */
+    movw $0x4F02, %ax
+    movw %dx, %bx                      /* BX = mode; AL=0x4F, AH=0 on ok */
+    orw $0x4000, %bx
+    int $0x10
+    cmpb $0x4F, %al
+    jnz vbe_advance
+    cmpb $0x00, %ah
+    jnz vbe_advance
+
+    /* mode info: int 10h AX=4F01, CX = base mode (bit 14 cleared) into
+       the MIB scratch (128 B are mandatory; we read fixed offsets). */
+    movw $0x4F01, %ax
+    movw %dx, %cx
+    andw $0x3FFF, %cx                  /* drop vbeModeInfo flags bits */
+    movw $MIB_AT, %di
+    int $0x10
+    cmpb $0x4F, %al
+    jnz vbe_advance
+    cmpb $0x00, %ah
+    jnz vbe_advance
+
+    /* validate the mode the BIOS actually accepted: 32 bpp with a
+       real linear base. Falling short = try the next candidate. */
+    movzbl MIB_AT+0x19, %eax           /* ModeInfoBlock: bits-per-pixel */
+    cmpl $32, %eax
+    jnz vbe_advance
+    movl MIB_AT+0x28, %eax             /* ModeInfoBlock: PhysBasePtr */
+    testl %eax, %eax
+    jz vbe_advance
+
+vbe_accepted:
+
+    /* handoff block, docs/disk-layout.md: u32 width, u32 height,
+       u32 pitch (bytes/scanline), u32 bpp, u64 phys (LE dword + 0). */
+    movzwl MIB_AT+0x12, %eax           /* XResolution */
+    cmpl $1, %eax
+    jb vbe_advance                     /* nonsense resolution */
+    movl %eax, FB_INFO_AT
+    movzwl MIB_AT+0x14, %eax           /* YResolution */
+    cmpl $1, %eax
+    jb vbe_advance
+    movl %eax, FB_INFO_AT+4
+    movzwl MIB_AT+0x10, %eax           /* BytesPerScanLine */
+    cmpl $4, %eax
+    jb vbe_advance                     /* can't even hold one pixel */
+    movl %eax, FB_INFO_AT+8
+    movl $32, %eax
+    movl %eax, FB_INFO_AT+12           /* bpp */
+    movl MIB_AT+0x28, %eax
+    movl %eax, FB_INFO_AT+16           /* PhysBasePtr (LE dword) */
+    movl $0, FB_INFO_AT+20             /* high dword: sub-4-GiB BAR */
+
+    movl $0x3F8, %edx                  /* phase 'V': LFB mode set + info */
+    movb $'V', %al
+    outb %al, %dx
+    jmp vbe_done
+
+vbe_advance:
+    incw %si
+    jmp vbe_next_mode
+
+vbe_done:
+vbe_none:
 
     /* ----- No more BIOS: silence both PICs and the drive IRQ line.
        Interrupts stay off for the rest of the boot. ----- */
@@ -406,7 +728,12 @@ chunk_loop:
     popl %ebx                          /* sectors left in this command */
 pio_sector:
     movw $0x1F7, %dx                   /* status: wait BSY=0, ERR kill */
-    movw $0xFFFF, %cx                  /* bounded wait (~1s of spinning) */
+    movl $0xFFFF, %ecx                 /* bounded wait (~1s of spinning).
+                                          FULL ECX: the 32-bit 'loop'
+                                          decrements all of ECX, and the
+                                          caller may leave garbage in the
+                                          upper half (the dispi PCI walk
+                                          leaves a slot address there). */
 pio_wait_drq:
     inb %dx, %al
     testb $0x80, %al                   /* BSY */
@@ -420,9 +747,14 @@ pio_wait_tick:
     jmp stage2_fail
 
 pio_have_drq:
-    movw $256, %cx                     /* one sector = 256 words; REP INSW
-                                          advances EDI 512 bytes itself.
-                                          16-bit DX = the data port. */
+    movl $256, %ecx                    /* one sector = 256 words; REP INSW
+                                          advances EDI 512 bytes itself and
+                                          decrements FULL ECX in 32-bit
+                                          mode — a 16-bit movw would keep
+                                          caller garbage up top and ~2
+                                          billion words would scribble the
+                                          whole 4 GiB (stage2's own code
+                                          included). 16-bit DX = data port. */
     movw $0x1F0, %dx
     rep
     insw                               /* ES:EDI, flat */
@@ -441,6 +773,29 @@ pio_done:
 /* Data lives in .text: flat binary, RAM at 0x7e00+ is writable, and the
    boot image has no separate loading sections. */
 boot_drive: .byte 0
+
+/* VBE LFB candidates (docs/disk-layout.md, M5.6), most preferred first.
+   Bit 14 = linear framebuffer. Two naming conventions exist in the
+   wild for the 32 bpp modes and NEITHER is guaranteed: the Bochs/QEMU
+   vgabios lineage numbers 640x480x32=0x114, 800x600x32=0x115,
+   1024x768x32=0x116, 1280x1024x32=0x117, while the VESA spec's
+   extension table numbers them 0x113..0x11B (cycle 15/16/24/32 per
+   resolution). The MIB validation below owns the truth: whatever
+   number the card accepts, we keep it ONLY if it reports 32 bpp and a
+   real PhysBasePtr. A card matching neither convention leaves the
+   handoff zeroed and the kernel boots on the text console. */
+    .align 2
+vbe_modes:
+    .word 0x4116                   /* Bochs: 1024x768x32            */
+    .word 0x4115                   /* Bochs: 800x600x32             */
+    .word 0x4114                   /* Bochs: 640x480x32             */
+    .word 0x411B                   /* VESA spec: 1024x768x32        */
+    .word 0x4117                   /* VESA spec: 800x600x32         */
+    .word 0x4113                   /* VESA spec: 640x480x32         */
+    .word 0
+
+vbe_best: .word 0                  /* scanner's winning plain mode  */
+vbe_phys_scratch: .long 0          /* PCI BAR0 of the display device */
 
     .align 8
     .section .rodata.gdt, "a"

@@ -24,6 +24,7 @@
 #include "arch/x86_64/syscall.h"
 #include "arch/x86_64/sched.h"
 #include "arch/x86_64/kbd.h"
+#include "arch/x86_64/fb.h"
 
 /* M5.1: the v0 syscall ABI exercised from the caller side - the same
    four-step shape userland will use (docs/syscall-abi.md). RAX carries
@@ -133,6 +134,11 @@ void kernel_main(void)
     vga_clear();
     serial_init();
 
+    /* M5.6: parse the stage-2 VBE handoff FIRST - the block lives in
+       boot RAM below 0x100000, and everything later in this function
+       must not be able to disturb the only honest copy. */
+    fb_init();
+
     vga_puts("KernOS x86-64 kernel online\n");
     serial_puts("KernOS x86-64 kernel online\n");
 
@@ -239,6 +245,48 @@ void kernel_main(void)
             }
         } else {
             serial_puts("heap: selftest FAILED (alloc)\n");
+        }
+    }
+
+    /* M5.6 framebuffer gate: map the VBE LFB stage2 handed us, paint a
+       five-point color sentinel (four corners + center, distinct RGB),
+       read it all back. Positive phase = "fb: pixel echo ok"; a wrong
+       readback is a named FAILED line (never a silent pass). When the
+       card offered no LFB, presence of the absence line IS the evidence
+       and the whole rest of the boot continues on the text console. */
+    {
+        u64 va = fb_map();
+        if (!fb_present()) {
+            serial_puts("fb: absent - card offered no LFB (text console)\n");
+        } else if (!va) {
+            serial_puts("fb: map FAILED\n");
+        } else {
+            const u32 w = fb_width(), h = fb_height();
+            serial_puts("fb: mapped ");
+            putdec((u64)w);
+            serial_puts("x");
+            putdec((u64)h);
+            serial_puts("x32 pitch=");
+            putdec((u64)fb_pitch());
+            serial_puts(" phys=");
+            serial_puts_hex(fb_phys());
+            serial_puts("\n");
+
+            fb_pixel_set(0,     0,     0x120000);   /* R 0x12 */
+            fb_pixel_set(w - 1, 0,     0x001200);
+            fb_pixel_set(0,     h - 1, 0x000012);
+            fb_pixel_set(w - 1, h - 1, 0x201212);
+            fb_pixel_set(w / 2, h / 2, 0x55AA55);
+
+            if (fb_pixel_get(0,     0)     == 0x120000 &&
+                fb_pixel_get(w - 1, 0)     == 0x001200 &&
+                fb_pixel_get(0,     h - 1) == 0x000012 &&
+                fb_pixel_get(w - 1, h - 1) == 0x201212 &&
+                fb_pixel_get(w / 2, h / 2) == 0x55AA55) {
+                serial_puts("fb: pixel echo ok\n");
+            } else {
+                serial_puts("fb: pixel echo FAILED\n");
+            }
         }
     }
 

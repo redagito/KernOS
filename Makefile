@@ -52,6 +52,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/pmm.o \
 	$(OBJ)/page.o \
 	$(OBJ)/heap.o \
+	$(OBJ)/fb.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
@@ -211,6 +212,10 @@ $(OBJ)/page.o: kernel/arch/x86_64/page.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/heap.o: kernel/arch/x86_64/heap.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/fb.o: kernel/arch/x86_64/fb.c kernel/arch/x86_64/fb.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

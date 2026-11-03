@@ -105,7 +105,13 @@ into low RAM before leaving real mode:
 | 0x0500-0x05FF  | free                                                   |
 | **0x0600**     | **u64 entry count** (0 = capture failed)               |
 | **0x0608**     | E820 entries, 24 B each: u64 base, u64 len, u32 type, u32 pad, max 32 |
-| 0x0908-0x7BFF  | free                                                   |
+| 0x0908-0x09FF  | free                                                   |
+| **0x0A00**     | **fb handoff** — linear-framebuffer block, M5.6 (below) |
+| 0x0A18-0x0BFF  | free                                                   |
+| **0x0C00**     | stage-2 VBE ModeInfoBlock scratch (transient, dead past PM entry) |
+| 0x0DFF         | (scratch runs 128 B: 0x0C00-0x0DFF)                     |
+| **0x0E00**     | stage-2 VBE VbeInfoBlock scratch (transient, dead past PM entry) |
+| 0x0FFF         | (scratch runs 512 B: 0x0E00-0x0FFF)                     |
 
 The kernel reads this at fixed addresses (`kernel/arch/x86_64/mem.c`).
 When the KernOS image header replaces the fixed kernel slot, the
@@ -115,6 +121,47 @@ plus docs is the single normative definition.
 After the 64-bit kernel starts it zeroes its own .bss (including a
 32 KiB stack at 0x101000-0x109000) and may reclaim everything below
 0x100000 except the page tables.
+
+## Boot ABI: linear-framebuffer handoff (normative since M5.6)
+
+Stage 2, while the display BIOS/emulated card is still programmable,
+attempts to establish a 32-bpp linear framebuffer graphic mode and
+hands the accepted mode down at **0x0A00**:
+
+| Offset | Field  | Meaning                                       |
+|--------|--------|-----------------------------------------------|
+| +0x00  | u32    | width in pixels                               |
+| +0x04  | u32    | height in pixels                              |
+| +0x08  | u32    | pitch in bytes per scanline                   |
+| +0x0C  | u32    | bits per pixel (always 32)                    |
+| +0x10  | u64    | physical base (LE; PCI BAR, sub-4-GiB)        |
+
+**`width == 0` is the ABI's absence flag**: stage 2 pre-zeroes the
+block and writes it only after a mode is set AND its geometry verified,
+so a `width` of 0 downstream means "no LFB was offered/accepted" —
+information, not failure. The kernel keeps the VGA text console in that
+case; every consumer must branch on presence before touching pixels.
+Absent is honest; a half-written or incoherent block (zero height,
+zero pitch, bpp != 32, zero phys) is refused by the kernel and treated
+as absence.
+
+Stage 2's own strategy (implementation, not ABI): it first programs the
+Bochs dispi registers (0x1CE/0x1CF) directly — register-level, no BIOS
+— because QEMU's std VGA emulates exactly that and its BIOS mode list
+offers only one 32-bpp LFB mode. Failing that it enumerates the card's
+own VBE mode list (4F00/4F01) and keeps the largest 32-bpp LFB mode;
+failing that it tries a small static candidate table. Every step
+validates what the mode actually reports before it is handed down.
+
+### COM1 phase sensors (boot chain, single ASCII chars)
+
+The boot chain emits stage-1 gutters and phase letters on COM1:
+`1 a j` (stage 1), then `U` (A20), `M` (E820), and since M5.6 `V`
+(a 32-bpp LFB mode was set and verified — only when true), then `H`
+(KIH valid), `L` (kernel loaded), `P` (page tables), `K` (kernel
+jumped). `X` = stage2_fail (any named failure path); the machine halts.
+Absence of `V` is a signal, not an error: the boot continues without a
+framebuffer by design.
 
 ## The bench disk (second drive, M4.x gates) — normative fixture
 

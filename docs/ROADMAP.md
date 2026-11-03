@@ -24,7 +24,7 @@ principles amended 2026-11-01, same day, after dogma friction.)
 |             | obligations documented; GPL code is never copied into ours.         |
 |             | Endgoal unchanged: the OS develops itself (M-Selfendgame).          |
 | Hardware    | Older PC: SATA AHCI + PS/2 first (NVMe/xHCI/HDA later, no redesign needed)|
-| First UI    | CLI: VGA text + serial console; add framebuffer (VBE) before M6           |
+| First UI    | CLI: VGA text + serial console; framebuffer landed in M5.6 (fb block at 0x0A00) |
 | Language    | (Amended 2026-11-01) C11, freestanding, for kernel + userland      |
 |             | alike; boot chain in assembly. Chosen so the tcc endgame is        |
 |             | honest: tcc is a C compiler, and the kernel was already C-shaped   |
@@ -159,6 +159,22 @@ as listed below.
   an in-OS editor, compile with in-OS `kcc`, run from the shell.
   Residual wall: tcc's GNU-as support is partial, so the tiny boot
   `.s` files may keep binutils unless we someday add an own assembler.
+- **M5.6 — the framebuffer boots (locked 2026-11-03)**
+  Stage 2 establishes a 32-bpp linear framebuffer before leaving real
+  mode: primary = Bochs dispi registers (0x1CE/0x1CF, register-level,
+  no BIOS — QEMU std VGA's own BIOS list offers only one 32-bpp LFB
+  mode) with the LFB base taken from the display device's PCI BAR0;
+  fallback = VBE 4F00/4F01 enumeration keeping the largest validated
+  32-bpp LFB mode; then a static candidate table. Handoff = the fb
+  block at 0x0A00 (docs/disk-layout.md normative); width==0 is honest
+  absence and the kernel keeps the text console (negative control
+  `-vga none`). Kernel side: fb.c parses the handoff before pmm_init,
+  maps via page_map_at at 0x50000000, gate = five-point pixel echo
+  (`fb: pixel echo ok`). Milestone bug fixed on the way: the ATA
+  reader's `rep insw`/bounded-wait counters used 16-bit movw on CX,
+  which in 32-bit mode kept garbage in the upper half (the PCI walk
+  leaves a slot address there) and scribbled the whole 4 GiB instead
+  of one sector — now full-ECX loads.
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

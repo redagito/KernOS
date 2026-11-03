@@ -23,7 +23,7 @@
 #include <kernel/block.h>
 #include "arch/x86_64/syscall.h"
 #include "arch/x86_64/sched.h"
-#include "arch/x86_64/sched.h"
+#include "arch/x86_64/kbd.h"
 
 /* M5.1: the v0 syscall ABI exercised from the caller side - the same
    four-step shape userland will use (docs/syscall-abi.md). RAX carries
@@ -338,6 +338,8 @@ void kernel_main(void)
     }
 
     irq_init();
+    kbd_init();                     /* M5.5: IRQ1 now load-bearing (READ) */
+    serial_puts("kbd: IRQ1 armed\n");
     sched_init();
     pit_init();
     thread_spawn("A", worker, (void *)(long)'A');
@@ -390,30 +392,42 @@ void kernel_main(void)
                                            : "syscall: unknown nr NOT refused\n");
     }
 
-    /* M5.3: the first real userland - read U1.ELF from the FAT fixture
-       through the very same block seam the benches used, then let the
-       ELF64 loader plan two processes out of it. Nothing user-related
-       rides inside the kernel image; the disk is now the program
-       source of truth. */
-    static u8 u1_img[16384];
-    int users = 0;
+    /* M5.5: the shell becomes what the OS runs first. main.c reads it
+       from the FAT fixture, spawns it, and JOINS its tid (the kernel
+       thread cannot go through the gate, so join is a kernel-side
+       blocking call on the same wait queue the WAIT syscall sleeps
+       on). Refusal is a named phase too - the negative control pairs
+       "proc: elf refused - <reason>" with this line and, above all,
+       with the absence of any ksh prompt. */
+    static u8 shell_img[16384];
     {
-        long got = fat_read_file(BENCH_U1_FILE, u1_img, sizeof u1_img);
-        serial_puts("elf: U1.ELF read bytes=");
+        long got = fat_read_file(BENCH_SHELL_FILE, shell_img, sizeof shell_img);
+        serial_puts("elf: SHELL.ELF read bytes=");
         serial_puts_hex((u64)got);
         serial_puts("\n");
-        if (got > 64) {
-            if (thread_spawn_user("D", u1_img, (u64)got) >= 0) users++;
-            if (thread_spawn_user("E", u1_img, (u64)got) >= 0) users++;
+        int stid = -1;
+        if (got > 64)
+            stid = thread_spawn_user("shell", shell_img, (u64)got);
+        if (stid > 0) {
+            serial_puts("gate5: shell live tid=");
+            serial_puts_hex((u64)stid);
+            serial_puts("\n");
+            int code = sched_join(stid);        /* blocks in WQ_CHILD */
+            serial_puts("gate5: shell exited code=");
+            putdec((u64)(code < 0 ? 0 : code));
+            serial_puts("\n");
+            serial_puts("gate5: user exits total=");
+            putdec(sysc_user_exits());
+            serial_puts("\n");
+            serial_puts("kbd: events=");
+            putdec(kbd_events());
+            serial_puts("\n");
+        } else {
+            serial_puts("gate5: shell load refused\n");
+            for (;;)                            /* evidence stays flat */
+                __asm__ volatile("hlt");
         }
     }
-    serial_puts("sched: spawned user D+E\n");
-
-    while (users == 2 && sysc_user_exits() < 2)
-        __asm__ volatile("hlt");
-    serial_puts("gate: users exited cleanly - exits=");
-    putdec(sysc_user_exits());
-    serial_puts("\n");
 
 #if TRAP_SELFTEST
     vga_puts("selftest: int3\n");

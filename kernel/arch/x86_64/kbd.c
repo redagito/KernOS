@@ -1,6 +1,7 @@
 #include <kernel/types.h>
 #include "irq.h"
 #include "kbd.h"
+#include "sched.h"                     /* the wake hook (SCHED_WQ_KBD) */
 
 /*
  * Scancode set 1 (the only real-world set on IBM PS/2 controllers that
@@ -63,9 +64,18 @@ static void push(char c)
 {
     u8 next = (u8)((head + 1) & RING_MASK);
     if (next == tail) return;          /* full: drop, IRQ keeps flowing */
+    u8 was_empty = (head == tail);
     ring[head] = (u8)c;
     head = next;
     events++;
+    /* First byte of a fresh run: any thread sleeping in the gate's
+       READ is hereby owed a look at the ring (M5.5). Waking is a
+       state flip only - no switching, no flags games; the woken
+       thread re-checks and re-blocks if the cookie was already
+       eaten. Called with IF off from the IRQ; sched_wake_all is
+       IRQ-safe by construction (single core, IF off everywhere). */
+    if (was_empty)
+        sched_wake_all(SCHED_WQ_KBD);
 }
 
 static void kbd_handler(struct trapframe *tf)
@@ -103,6 +113,19 @@ char kbd_getc(void)
     char c = (char)ring[tail];
     tail = (u8)((tail + 1) & RING_MASK);
     return c;
+}
+
+/* M5.5: batch drain for the syscall gate's READ (fd 0). Caller runs
+   with IF off (the gate guarantees it), so consumer vs. IRQ handler
+   cannot interleave on the ring indices. Returns 0..max bytes. */
+int kbd_pull(char *dst, int max)
+{
+    int n = 0;
+    while (n < max && head != tail) {
+        dst[n++] = (char)ring[tail];
+        tail = (u8)((tail + 1) & RING_MASK);
+    }
+    return n;
 }
 
 u64 kbd_events(void)

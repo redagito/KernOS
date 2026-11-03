@@ -13,3 +13,5 @@ void  *memset(void *dst, int c, size_t n);
 size_t strlen(const char *s);
 /* 0 = equal, nonzero = first differing comparison (negative for <) */
 int    strcmp(const char *a, const char *b);
+/* prefix compare over at most n bytes; equal -> 0 */
+int    strncmp(const char *a, const char *b, size_t n);

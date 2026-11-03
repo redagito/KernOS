@@ -46,6 +46,10 @@ v0 rules beyond the table:
 | 0 | `probe` | arg1 (untouched)            | arg1 itself                   |
 | 1 | `getpid`| —                           | current thread id             |
 | 2 | `write` | fd(1 = COM1 console), buf, n| bytes written, or -1          |
+| 3 | `exit`  | code                        | does not return               |
+| 4 | `read`  | fd(0 = COM1 console in), buf, n | bytes read (can block), or -1 |
+| 5 | `spawn` | name(8.1; ".ELF" assumed if absent) | new pid, or -1        |
+| 6 | `wait`  | —                           | a child's exit code, or -1    |
 
 v0 specifics worth stating:
 
@@ -100,3 +104,30 @@ syscall (`exit`) simply parked the captured frame's thread in the
 scheduler (zombie + swtch-away) through the ordinary paths. Pointer
 validation at the gate: P|U walk over the caller's CR3 for CPL3
 callers only (kernel-side v0 callers skip it).
+
+M5.5 notes — the first IRREVERSIBLY blocking numbers, and the proof
+that invariant 1 needed no grafting:
+
+- `read` (4): fd 0 only (COM1 console in: the IRQ1 keyboard ring).
+  Bytes are drained in batches (≤64 per call). EMPTY ring = the call
+  PARKS the caller's captured frame on `SCHED_WQ_KBD`; the keyboard
+  IRQ's push (empty → non-empty transition) flips the woken flag and
+  the same gate stub iretq resumes the exact caller with its own
+  IF restored. Non-empty = immediate return, so short reads are
+  honest non-blocking behavior, never a sleep-loop.
+- `spawn` (5): name → root-dir 8.3 lookup → FAT read → ELF64 loader
+  builds the child's space → new thread with `ppid = caller`.
+  Refusals (no such file, loader refusal, table full) return -1
+  with NOTHING left behind.
+- `wait` (6): collect a reaped child's exit code (per-tid
+  `exited[]/exit_codes[]` tables outlive the thread record;
+  collectible once). No children = -1. Children exist but none
+  exited yet = park on `SCHED_WQ_CHILD`; the exit path wakes it.
+- `exit` (3) gained the code+parent contract: records exit status,
+  wakes WQ_CHILD parallels, thread becomes zombie until collected.
+- Evidence discipline for all three: the gate emits named serial
+  lines at boot (`kbd: IRQ1 armed`, `gate5: shell live/...`) and the
+  shell round-trip is typed into a real QEMU by a committed driver
+  (`tools/ksh-driver.ps1`); negative control = corrupted SHELL.ELF
+  magic → `proc: elf refused - bad magic` + `gate5: shell load
+  refused` + no prompt.

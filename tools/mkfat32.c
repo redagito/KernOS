@@ -12,15 +12,18 @@
  *       [3]      0xE5...           deleted-entry decoy (must be skipped)
  *       [4]      KERNOS.TXT        (short 8.3 entry)
  *       [5]      U1.ELF            (the userland program, M5.3)
- *       [6]      0x00 terminator; rest zero
+ *       [6]      SHELL.ELF         (the shell, M5.5)
+ *       [7]      0x00 terminator; rest zero
  *   - fixture data from include/kernel/bench.h (shared with the kernel
  *     boot gates and host unit tests).
  *   - raw bench markers planted in the DATA area, with layout
  *     self-checks that refuse any collision with allocated clusters.
  *
- * argv: mkfat32 <image-file> <u1-elf-path> - the userland binary is
- * planted at clusters 5.. so the kernel loads its first processes from
- * the disk, not from its own image.
+ * argv: mkfat32 <image-file> <u1-elf-path> <shell-elf-path> - the
+ * userland binaries are planted at clusters 5.. (u1 chain, then the
+ * shell chain) so the kernel loads its processes from the disk, not
+ * from its own image. Both entries are read back and asserted before
+ * the image is allowed to exist.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,16 +129,38 @@ static u8 *read_file(const char *path, u32 *out_len, u32 cap)
     return p;
 }
 
+/* 8.3 dir name, built from base+ext. Bounded by the strings' OWN NULs
+   (strlen first) - the first draft looped with a per-byte zero ternary
+   and kept indexing PAST a literal's terminator, so padding slots
+   picked up whatever literal the compiler parked next door: the image
+   ended up with 'U1 SHELL' style nonsense names and both lookups
+   failed. A perfect case for the host suite to catch. */
+static void entry_name83(u8 out[11], const char *base, const char *ext)
+{
+    u32 bl = 0, el = 0;
+    while (base[bl]) ++bl;
+    while (ext[el]) ++el;
+    if (bl > 8) bl = 8;
+    if (el > 3) el = 3;
+
+    for (u32 i = 0; i < 11; ++i)
+        out[i] = ' ';
+    for (u32 i = 0; i < bl; ++i)
+        out[i] = (u8)base[i];
+    for (u32 i = 0; i < el; ++i)
+        out[8 + i] = (u8)ext[i];
+}
+
 int main(int argc, char **argv)
 {
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s <image-file> <u1-elf-path>\n",
+    if (argc != 4) {
+        fprintf(stderr, "usage: %s <image-file> <u1-elf-path> <shell-elf-path>\n",
                 argv ? argv[0] : "mkfat32");
         return 2;
     }
 
-    /* the program that userland will run: read it BEFORE anything else
-       so a bad path is a clean tool error, not a half-built image */
+    /* the programs that userland will run: read them BEFORE anything
+       else so a bad path is a clean tool error, not a half-built image */
     u32 u1_len = 0;
     u8 *u1 = read_file(argv[2], &u1_len, 16 * 1024);
     if (!u1 || (*u1 != 0x7F)) {
@@ -144,6 +169,16 @@ int main(int argc, char **argv)
         return 1;
     }
     u32 u1_clusters = (u1_len + SECTOR - 1) / SECTOR;
+
+    u32 sh_len = 0;
+    u8 *sh = read_file(argv[3], &sh_len, 16 * 1024);
+    if (!sh || (*sh != 0x7F)) {
+        fprintf(stderr, "mkfat32: cannot read a valid shell elf '%s'\n", argv[3]);
+        free(u1);
+        free(sh);
+        return 1;
+    }
+    u32 sh_clusters = (sh_len + SECTOR - 1) / SECTOR;
 
     /* ---- geometry: fat_secs = ceil((total-r-2S)*4/512) fixpoint ---- */
     u32 fat_secs = 2048;
@@ -170,18 +205,29 @@ int main(int argc, char **argv)
     }
     u32 marker_clus = BENCH_MARKER_LBA - data_start + 2;
     u32 rb_clus     = BENCH_WRITE_LBA  - data_start + 2;
-    /* clusters 2,3,4 fixed by the fixture; U1.ELF takes 5 .. 4+u1_clusters;
-       the AHCI markers sleep behind a DECLARED reserve (bench.h), not
-       behind u1's current size - program growth must never move them */
+    /* clusters 2,3,4 fixed by the fixture; the PROGRAMS take 5 ..
+       (U1.ELF chains first, SHELL.ELF right behind it). The AHCI
+       markers sleep behind the programs - each file has a declared
+       ceiling (bench.h), and the ACTUAL combined chain is asserted
+       against marker_clus at every plant: a program growth that ran
+       out of headroom is a loud tool error, not marker corruption. */
     if (u1_clusters > BENCH_U1_MAX_SECTORS) {
         fprintf(stderr, "mkfat32: U1.ELF needs %u clusters, bench reserve "
                         "is %u\n", u1_clusters, BENCH_U1_MAX_SECTORS);
+        free(u1); free(sh);
         return 1;
     }
-    if (marker_clus < 5 + BENCH_U1_MAX_SECTORS) {
-        fprintf(stderr, "mkfat32: marker LBA %u collides with the U1.ELF "
-                        "reserve (%u clusters)\n", BENCH_MARKER_LBA,
-                BENCH_U1_MAX_SECTORS);
+    if (sh_clusters > BENCH_SHELL_MAX_SECTORS) {
+        fprintf(stderr, "mkfat32: SHELL.ELF needs %u clusters, bench reserve "
+                        "is %u\n", sh_clusters, BENCH_SHELL_MAX_SECTORS);
+        free(u1); free(sh);
+        return 1;
+    }
+    if (marker_clus < 5 + u1_clusters + sh_clusters) {
+        fprintf(stderr, "mkfat32: marker LBA %u collides with the program "
+                        "chains (%u + %u clusters, first cluster 5)\n",
+                BENCH_MARKER_LBA, u1_clusters, sh_clusters);
+        free(u1); free(sh);
         return 1;
     }
     if (BENCH_WRITE_LBA <= BENCH_MARKER_LBA || rb_clus <= marker_clus ||
@@ -229,8 +275,8 @@ int main(int argc, char **argv)
     u8 *fsi = img + lba_off(1);
     wr32(fsi, 0x000, 0x41615252);
     wr32(fsi, 0x1E8, 0x61417272);
-    wr32(fsi, 0x1EC, clusters - 3 - u1_clusters);   /* 2..4 + u1 chain */
-    wr32(fsi, 0x1F0, 5 + u1_clusters);              /* next free       */
+    wr32(fsi, 0x1EC, clusters - 3 - u1_clusters - sh_clusters); /* 2..4+progs */
+    wr32(fsi, 0x1F0, 5 + u1_clusters + sh_clusters);           /* next free  */
 
     /* ---- backup boot sector ------------------------------------------ */
     memcpy(img + lba_off(6), img, SECTOR);
@@ -243,9 +289,9 @@ int main(int argc, char **argv)
         wr32(T, 2 * 4, 0x0FFFFFFFu);     /* root dir: one cluster          */
         wr32(T, 3 * 4, 0x0FFFFFFFu);     /* KERNOS.TXT                     */
         wr32(T, 4 * 4, 0x0FFFFFFFu);     /* VERYLONGNAME.TXT               */
-        for (u32 c = 5; c < 5 + u1_clusters - 1; ++c)
-            wr32(T, c * 4, c + 1);       /* U1.ELF chain                   */
-        wr32(T, (4 + u1_clusters) * 4, 0x0FFFFFFFu);   /* chain end       */
+        for (u32 c = 5; c < 5 + u1_clusters + sh_clusters - 1; ++c)
+            wr32(T, c * 4, c + 1);       /* program chains (u1 then shell) */
+        wr32(T, (4 + u1_clusters + sh_clusters) * 4, 0x0FFFFFFFu); /* last EOC */
     }
 
     /* ---- root directory ---------------------------------------------- */
@@ -284,12 +330,21 @@ int main(int argc, char **argv)
     {
         u8 *e = D + 5 * 32;
         memset(e, 0, 32);
-        memcpy(e, "U1      ELF", 11);        /* base + ext, space padded */
+        entry_name83(e, "U1", "ELF");
         e[11]  = 0x20;
         e[0x1A] = 5;                         /* first cluster            */
         wr32(e, 0x1C, u1_len);               /* exact size, LO u32       */
     }
-    /* slot 6 onward: zero (terminator covered by the zeroed image) */
+    /* slot 6: SHELL.ELF - the first thing the OS runs (M5.5) */
+    {
+        u8 *e = D + 6 * 32;
+        memset(e, 0, 32);
+        entry_name83(e, "SHELL", "ELF");
+        e[11]  = 0x20;
+        e[0x1A] = (u8)(5 + u1_clusters);     /* chains in right behind u1 */
+        wr32(e, 0x1C, sh_len);
+    }
+    /* slot 7 onward: zero (terminator covered by the zeroed image) */
 
     /* ---- file bodies: cluster 3 @ data_start+1, cluster 4 @ +2 ------- */
     memcpy(img + lba_off(data_start + 1), BENCH_SEED, strlen(BENCH_SEED));
@@ -309,6 +364,15 @@ int main(int argc, char **argv)
         u1_left -= chunk;
     }
 
+    /* ---- SHELL.ELF body: clusters 5+u1c .. --------------------------- */
+    u32 sh_left = sh_len;
+    for (u32 c = 0; c < sh_clusters; ++c) {
+        u32 chunk = sh_left > SECTOR ? SECTOR : sh_left;
+        memcpy(img + lba_off(data_start + 3 + u1_clusters + c),
+               sh + c * SECTOR, chunk);
+        sh_left -= chunk;
+    }
+
     FILE *fp = fopen(argv[1], "wb");
     if (!fp) { perror(argv[1]); return 1; }
     if (fwrite(img, 1, sizeof img, fp) != sizeof img) {
@@ -320,22 +384,39 @@ int main(int argc, char **argv)
 
     printf("total=%u reserved=%u fat_secs=%u data_start=%u clusters=%u\n",
            TOTAL_SECTORS, RESERVED, fat_secs, data_start, clusters);
-    /* read back the planted dir entry: a planter bug (like a size
+    /* read back the planted dir entries: a planter bug (like a size
        field that silently truncates) must be a tool error, not a
        kernel boot surprise */
     {
-        const u8 *e = D + 5 * 32;
-        u32 sz = e[0x1C] | (e[0x1D] << 8) | (e[0x1E] << 16) | ((u32)e[0x1F] << 24);
-        if (memcmp(D + 5 * 32, "U1      ELF", 11) != 0 || sz != u1_len) {
-            fprintf(stderr, "mkfat32: U1.ELF entry read-back mismatch "
-                            "(name ok=%d size=%u want %u)\n",
-                    memcmp(D + 5 * 32, "U1      ELF", 11) == 0, sz, u1_len);
-            free(u1);
+        struct { const char *b, *x; u32 *lenp; u32 first; u32 slot; } planted[2] = {
+            { "U1",    "ELF", &u1_len, 5,               5 },
+            { "SHELL", "ELF", &sh_len, 5 + u1_clusters, 6 },
+        };
+        int bad = 0;
+        for (int i = 0; i < 2; ++i) {
+            u8 want[11];
+            entry_name83(want, planted[i].b, planted[i].x);
+            const u8 *e = D + planted[i].slot * 32;
+            u32 sz = e[0x1C] | (e[0x1D] << 8) | (e[0x1E] << 16) |
+                     ((u32)e[0x1F] << 24);
+            int name_ok = memcmp(e, want, 11) == 0;
+            int clus_ok = (e[0x1A] | ((u32)e[0x1B] << 8)) == planted[i].first;
+            if (!name_ok || sz != *planted[i].lenp || !clus_ok) {
+                fprintf(stderr, "mkfat32: %s entry read-back mismatch "
+                                "(name ok=%d size=%u want %u cluster ok=%d)\n",
+                        planted[i].b, name_ok, sz, *planted[i].lenp, clus_ok);
+                bad = 1;
+            }
+        }
+        if (bad) {
+            free(u1); free(sh);
             return 1;
         }
     }
     printf("mkfat32: planted U1.ELF %u bytes (%u clusters, first cluster 5)\n",
            u1_len, u1_clusters);
+    printf("mkfat32: planted SHELL.ELF %u bytes (%u clusters, first cluster %u)\n",
+           sh_len, sh_clusters, 5 + u1_clusters);
     printf("mkfat32: ok\n");
     return 0;
 }

@@ -33,7 +33,25 @@ ssize_t write(int fd, const void *buf, size_t n)
     return (ssize_t)r;
 }
 
+ssize_t read(int fd, void *buf, size_t n)
+{
+    long r = gate(SYSCALL_READ, fd, (long)buf, (long)n);
+    if (r < 0)
+        return -1;
+    return (ssize_t)r;
+}
+
 long getpid(void)
 {
     return gate(SYSCALL_GETPID, 0, 0, 0);
+}
+
+long spawn(const char *name)
+{
+    return gate(SYSCALL_SPAWN, (long)name, 0, 0);
+}
+
+long wait(void)
+{
+    return gate(SYSCALL_WAIT, 0, 0, 0);
 }

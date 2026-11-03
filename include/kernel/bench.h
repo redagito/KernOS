@@ -39,7 +39,14 @@
    plants it at the first free clusters (5+); the kernel reads it with
    the ordinary fat_read_file path and hands it to the ELF64 loader.
    The chain's headroom is a declared constant (not u1's actual size):
-   the AHCI markers sleep behind BENCH_U1_MAX_CLUSTERS, so user code
-   growth never shoves the markers around again. */
+   the AHCI markers sleep behind the program reserve, so user code
+   growth never shoves the markers around again.
+
+   M5.5: the shell (BENCH_SHELL_FILE) chains in right behind u1 -
+   same 8.3 name rules, same loader path; the boot gate runs it and
+   joins its tid. mkfat32 asserts both ceilings AND the combined
+   chain against the marker position. */
 #define BENCH_U1_FILE        "U1.ELF"
-#define BENCH_U1_MAX_SECTORS 32u      /* 16 KiB ceiling on the clarge    */
+#define BENCH_U1_MAX_SECTORS 32u      /* 16 KiB ceiling on the payload  */
+#define BENCH_SHELL_FILE     "SHELL.ELF"
+#define BENCH_SHELL_MAX_SECTORS 32u   /* shell own-chain ceiling */

@@ -18,7 +18,7 @@
 #define MAX_THREADS 6
 #define KSTACK_SZ   8192
 
-enum { T_FREE = 0, T_RUNNABLE = 1, T_ZOMBIE = 2 };
+enum { T_FREE = 0, T_RUNNABLE = 1, T_ZOMBIE = 2, T_WAITING = 3 };
 
 struct thread {
     int          id;
@@ -28,11 +28,19 @@ struct thread {
     u64          cr3;                  /* 0 = boot space (kernel thread) */
     u64          frames[MAX_PFRAMES];  /* frames of the space (exit)     */
     int          nframes;
+    int          ppid;                 /* spawner's tid (user procs; 0)  */
+    int          waitq;                /* queue if T_WAITING             */
 };
 
 static struct thread threads[MAX_THREADS];
 static struct thread *cur;
 static u64 switches;
+
+/* Child-exit ledger (M5.5): indexed by tid - the permanent small-int
+   namespace. A slot can be FREE again while its exit result is still
+   uncollected: the exit tables outlive the thread record. */
+static u8  exited[MAX_THREADS];
+static u64 exit_codes[MAX_THREADS];
 
 static u8 kstacks[MAX_THREADS - 1][KSTACK_SZ] __attribute__((aligned(16)));
 
@@ -102,6 +110,8 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
     t->id    = i;
     t->name  = name;
     t->cr3   = 0;
+    t->ppid  = 0;                    /* kernel thread: not a child proc */
+    t->waitq = 0;
     fill_ctx(t, (u64)entry, (u64)arg);
     t->state = T_RUNNABLE;          /* LAST: tick must never see a half-built slot */
 
@@ -132,6 +142,8 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
     t->id   = i;
     t->name = name;
     t->cr3  = cr3;
+    t->ppid = cur ? (int)cur->id : 0;    /* spawner link (WAIT collects) */
+    t->waitq = 0;
     fill_ctx(t, (u64)proc_user_entry, entry);
     t->state = T_RUNNABLE;           /* LAST: see above, no half-built slot */
 
@@ -139,6 +151,37 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
     serial_puts(name);
     serial_puts("\n");
     return i;
+}
+
+/* The one true switch-in: cur/goal bookkeeping, address space + rsp0,
+   (bounded) bring-up trace. Caller then swtch()s into it. Runs IF off
+   (tick, gate, exit path all guarantee it). */
+static void switch_into(struct thread *from, struct thread *to)
+{
+    cur = to;
+    switches++;
+
+    /* Address space follows the switch: userland gets its CR3 and
+       an rsp0 that points at its own kernel stack, so both the
+       syscall gate and every PIT tick from CPL3 arrive on-stack. */
+    if (to->cr3) {
+        tss_rsp0_set((u64)(kstacks[to->id - 1] + KSTACK_SZ));
+        load_cr3(to->cr3);
+    } else {
+        load_cr3(boot_cr3);
+    }
+
+    if (switches <= 8) {           /* bring-up trace */
+        serial_puts("sw#");
+        serial_puts_hex(switches);
+        serial_puts(": ");
+        serial_puts(from->name);
+        serial_puts(" -> ");
+        serial_puts(to->name);
+        serial_puts(" cr3=");
+        serial_puts_hex(to->cr3 ? to->cr3 : boot_cr3);
+        serial_puts("\n");
+    }
 }
 
 void schedule(void)
@@ -154,37 +197,14 @@ void schedule(void)
             continue;
 
         struct thread *from = cur;
-        cur = to;
-        switches++;
-
-        /* Address space follows the switch: userland gets its CR3 and
-           an rsp0 that points at its own kernel stack, so both the
-           syscall gate and every PIT tick from CPL3 arrive on-stack. */
-        if (to->cr3) {
-            tss_rsp0_set((u64)(kstacks[to->id - 1] + KSTACK_SZ));
-            load_cr3(to->cr3);
-        } else {
-            load_cr3(boot_cr3);
-        }
-
-        if (switches <= 8) {       /* bring-up trace */
-            serial_puts("sw#");
-            serial_puts_hex(switches);
-            serial_puts(": ");
-            serial_puts(from->name);
-            serial_puts(" -> ");
-            serial_puts(to->name);
-            serial_puts(" cr3=");
-            serial_puts_hex(to->cr3 ? to->cr3 : boot_cr3);
-            serial_puts("\n");
-        }
+        switch_into(from, to);
         swtch(&from->ctx, to->ctx);
         return;                    /* resumed later on our own stack */
     }
     /* only cur runnable: keep its slice */
 }
 
-void sched_exit_now(void)
+void sched_exit_now(u64 exit_code)
 {
     /*
      * Called from the 0x80 gate with IF off, on the exiting thread's
@@ -199,6 +219,12 @@ void sched_exit_now(void)
      */
     struct thread *from = cur;
     from->state = T_ZOMBIE;
+
+    /* Remember the result for whoever waits on this tid (the tables
+       outlive the slot), and let a parent blocked in WAIT/join see it. */
+    exited[from->id]     = 1;
+    exit_codes[from->id] = exit_code;
+    sched_wake_all(SCHED_WQ_CHILD);
 
     struct thread *to = 0;
     for (int off = 1; off <= MAX_THREADS; ++off) {
@@ -246,4 +272,108 @@ u64 sched_switches(void)
 u64 sched_tid(void)
 {
     return cur ? (u64)cur->id : (u64)-1;
+}
+
+/* ---- blocking (M5.5): the substrate pays off ----------------------- */
+
+void sched_wake_all(int wq)
+{
+    /* IRQ-safe: no switching, no locks - single core, IF off on every
+       path that mutates thread state. Woken threads re-check their
+       own condition; a stale wake just re-blocks on the next pass. */
+    for (int i = 0; i < MAX_THREADS; ++i)
+        if (threads[i].state == T_WAITING && threads[i].waitq == wq)
+            threads[i].state = T_RUNNABLE;
+}
+
+void sched_block(int wq)
+{
+    struct thread *me = cur;
+    me->state = T_WAITING;
+    me->waitq = wq;
+
+    for (int off = 1; off <= MAX_THREADS; ++off) {
+        int i = (me->id + off) % MAX_THREADS;
+        struct thread *to = &threads[i];
+        if (to->state != T_RUNNABLE || i == me->id)
+            continue;
+
+        switch_into(me, to);
+        swtch(&me->ctx, to->ctx);
+        /* Resumed: woken and scheduled again. IF is still OFF by the
+           block contract - a gate caller continues its dispatch (the
+           stub's iretq restores IF), a kernel caller sti's itself. */
+        return;
+    }
+
+    /* Nobody runnable at all: every thread waits on IO. Park with IF
+       open until IRQ wakes eat the hlt, then look for work again - a
+       wake flips our peers to RUNNABLE straight from the IRQ handler. */
+    for (;;) {
+        __asm__ volatile("sti\n\thlt\n\tcli" ::: "memory");
+        for (int i = 0; i < MAX_THREADS; ++i)
+            if (i != me->id && threads[i].state == T_RUNNABLE)
+                goto awake;
+        /* woke for nothing (e.g. a tick): hlt again */
+    awake:
+        break;
+    }
+
+    /* Someone else is runnable now; this thread stays WAITING until
+       its own wake arrives, but the CPU must go somewhere - hand it
+       off after flipping ourselves back so the state stays truthful. */
+    for (int off = 1; off <= MAX_THREADS; ++off) {
+        int i = (me->id + off) % MAX_THREADS;
+        struct thread *to = &threads[i];
+        if (to->state == T_RUNNABLE && i != me->id) {
+            switch_into(me, to);
+            swtch(&me->ctx, to->ctx);
+            return;
+        }
+    }
+}
+
+int sched_join(int tid)
+{
+    if (tid < 0 || tid >= MAX_THREADS)
+        return -1;
+
+    __asm__ volatile("cli");
+    while (!exited[tid]) {
+        sched_block(SCHED_WQ_CHILD);
+        /* wake_all(WQ_CHILD) may fire spuriously (another thread's
+           child exited); the while re-checks our own tid. */
+    }
+    __asm__ volatile("sti");       /* kernel-side callers resume IF off */
+    return (int)exit_codes[tid];
+}
+
+int sched_collect_child(u64 *code)
+{
+    int me = cur ? (int)cur->id : -1;
+    if (me < 0)
+        return 0;
+    for (int i = 0; i < MAX_THREADS; ++i) {
+        if (exited[i] && threads[i].ppid == me) {
+            exited[i]      = 0;    /* one collection, like wait(2) */
+            if (code)
+                *code = exit_codes[i];
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int sched_any_children(void)
+{
+    int me = cur ? (int)cur->id : -1;
+    if (me < 0)
+        return 0;
+    for (int i = 0; i < MAX_THREADS; ++i) {
+        /* live child, or a FREE slot whose result is uncollected: the
+           exit tables keep both visible after the record is reused. */
+        if (threads[i].ppid == me && (threads[i].state != T_FREE || exited[i]))
+            return 1;
+    }
+    return 0;
 }

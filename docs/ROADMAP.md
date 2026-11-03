@@ -142,7 +142,15 @@ as listed below.
   M5.3 landed — ELF64 loader: userland comes from the FAT disk via
   the portable elf64_plan module + host tests, nothing user-related
   inside the kernel image; M5.4 landed — our libc: crt0/printf/
-  string/exit over the gate, vsnprintf core host-tested)*
+  string/exit over the gate, vsnprintf core host-tested; M5.5
+  landed — concurrency + input + the first OS-run init: ABI numbers
+  4 read / 5 spawn / 6 wait (append-only), IRQ1 keyboard ring feeding
+  blocking READ via wait queues (SCHED_WQ_KBD/SCHED_WQ_CHILD),
+  main.c boots SHELL.ELF off the FAT and JOINS its tid through the
+  kernel-side sched_join (gate-typed shell round-trip `run u1` →
+  spawn → wait → `exit` proven on real IRQs by a committed driver,
+  tools/ksh-driver.ps1; negative control = corrupted shell magic →
+  the named refusal pair with no prompt))*
   Syscall ABI (docs/syscall-abi.md — normative since M5.1), ELF64
   loader, process model, our libc, init + shell + utilities.
 - **M5.5 — Compile C inside the OS** (TinyCC-fork path, locked 2026-11-01)

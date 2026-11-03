@@ -83,6 +83,34 @@ int main(int argc, char **argv)
 
     check(fat_read_file(BENCH_FILE, buf, 4) == -1, "cap too small is refused");
 
+    /* ---------- the planted programs resolve through 8.3 semantics ---- */
+    /* M5.3/M5.5: programs ride the fixture (U1.ELF, then SHELL.ELF).
+       The lookups here exercise the module's own shortname() form
+       INDEPENDENT of the planter's self-checks (a hand-spaced literal
+       typo in mkfat32 would agree with itself; the kernel-side 8.3
+       semantics would not). Both must read ELF magic. */
+    static u8 pbuf[16384];               /* programs exceed 4 KiB now   */
+    {
+        int usz = fat_read_file(BENCH_U1_FILE, pbuf, sizeof pbuf);
+        printf("   %s size=%d\n", BENCH_U1_FILE, usz);
+        check(usz > 64, "U1.ELF resolves and is at least one ELF header");
+        check(usz <= 0 || (pbuf[0] == 0x7F && pbuf[1] == 'E' &&
+                           pbuf[2] == 'L' && pbuf[3] == 'F'),
+              "U1.ELF content starts with ELF magic");
+
+        int ssz = fat_read_file(BENCH_SHELL_FILE, pbuf, sizeof pbuf);
+        printf("   %s size=%d\n", BENCH_SHELL_FILE, ssz);
+        check(ssz > 64, "SHELL.ELF resolves and is at least one ELF header");
+        check(ssz <= 0 || (pbuf[0] == 0x7F && pbuf[1] == 'E' &&
+                           pbuf[2] == 'L' && pbuf[3] == 'F'),
+              "SHELL.ELF content starts with ELF magic");
+
+        /* the lowercase lower-8.3 route the shell's spawn calls take */
+        check(fat_read_file(BENCH_U1_FILE + 0, pbuf, sizeof pbuf) == usz &&
+              fat_read_file("u1.elf", pbuf, sizeof pbuf) == usz,
+              "program lookup is case-insensitive too");
+    }
+
     /* ---------- the walk must have skipped what comes first ---------- */
     /* (implicit: BENCH files are entered AFTER the LFN pair and the
        deleted decoy, so every successful read above already covered it) */

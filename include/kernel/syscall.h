@@ -15,7 +15,14 @@
 #define SYSCALL_WRITE   2    /* write(fd=1, buf, n) -> bytes */
 #define SYSCALL_EXIT    3    /* exit(code): never returns    */
 
-#define STDIN_FILENO  0      /* v0: input undefined (kbd arrives M5) */
+/* M5.5: the first blocking numbers. Blocking lives INSIDE the gate
+   (docs/syscall-abi.md): the trapframe parks above the swtch save and
+   the stub's iretq restores the caller's frame wholesale. */
+#define SYSCALL_READ    4    /* read(fd=0, buf, n) -> bytes; blocks on kbd  */
+#define SYSCALL_SPAWN   5    /* spawn(name) -> new pid (our child); or -1   */
+#define SYSCALL_WAIT    6    /* wait() -> child exit code; blocks; -1 none  */
+
+#define STDIN_FILENO  0      /* the keyboard ring (M5.5)         */
 #define STDOUT_FILENO 1      /* v0: COM1 console                */
 
 /* Error codes: v0 is the cheap era - one value. The numbering stays

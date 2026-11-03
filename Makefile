@@ -26,7 +26,7 @@ KFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin \
 	-fno-stack-protector -fno-pie -fno-pic \
 	-mno-red-zone -mno-mmx -mno-sse -mno-sse2 -msoft-float \
 	-Wall -Wextra -O2 -g \
-	-I$(INC) -MMD -MP \
+	-I$(INC) -Ikernel -MMD -MP \
 	-DTRAP_SELFTEST=$(TRAP_SELFTEST)
 
 TRAP_SELFTEST ?= 0
@@ -121,11 +121,11 @@ $(BUILD)/mkfat32: tools/mkfat32.c include/kernel/bench.h
 .PHONY: benchdisk hosttest
 benchdisk: $(BUILD)/ahcidisk.img
 
-$(BUILD)/ahcidisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf
-	$(BUILD)/mkfat32 $(BUILD)/ahcidisk.img $(BUILD)/u1.elf
+$(BUILD)/ahcidisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf $(BUILD)/shell.elf
+	$(BUILD)/mkfat32 $(BUILD)/ahcidisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
 
-$(BUILD)/testdisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf
-	$(BUILD)/mkfat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf
+$(BUILD)/testdisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf $(BUILD)/shell.elf
+	$(BUILD)/mkfat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
 
 $(BUILD)/test_fat32: tests/test_fat32.c tests/blk_host.c kernel/fat32.c \
 		include/kernel/block.h kernel/fat32.h include/kernel/bench.h \
@@ -269,8 +269,18 @@ $(OBJ)/user1.o: kernel/user/u1.c include/kernel/syscall.h \
 	@mkdir -p $(@D)
 	$(CC) $(UFLAGS) -c -o $@ $<
 
-$(BUILD)/u1.elf: $(OBJ)/user1.o $(BUILD)/libc.a kernel/user/u1.ld
-	$(LD) -nostdlib -T kernel/user/u1.ld -o $@ $(OBJ)/user1.o $(BUILD)/libc.a
+$(OBJ)/shell.o: kernel/user/shell.c include/kernel/syscall.h \
+		libc/include/stdio.h libc/include/string.h libc/include/unistd.h
+	@mkdir -p $(@D)
+	$(CC) $(UFLAGS) -c -o $@ $<
+
+# Every user program links with the ONE shared script (prog.ld):
+# same load window, same entry discipline, same bss contract.
+$(BUILD)/u1.elf: $(OBJ)/user1.o $(BUILD)/libc.a kernel/user/prog.ld
+	$(LD) -nostdlib -T kernel/user/prog.ld -o $@ $(OBJ)/user1.o $(BUILD)/libc.a
+
+$(BUILD)/shell.elf: $(OBJ)/shell.o $(BUILD)/libc.a kernel/user/prog.ld
+	$(LD) -nostdlib -T kernel/user/prog.ld -o $@ $(OBJ)/shell.o $(BUILD)/libc.a
 
 $(OBJ)/swtch.o: kernel/arch/x86_64/swtch.s
 	@mkdir -p $(@D)

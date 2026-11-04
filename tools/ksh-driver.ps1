@@ -14,6 +14,11 @@
 #   4. type  "exit"                     -> shell exits; main joins it
 #   5. wait  "gate5: shell exited code=0"
 # Exit code 0 = the whole typed round-trip was proven on real IRQs.
+# M6.1 hardening: callers pass -RequireCues for the milestone's OWN
+# evidence lines ("input: gate ok" / "input: idle - ..."); every one
+# must exist in serial.log before the run can exit 0 - the round-trip
+# cues alone are satisfiable by a userland that never gained the
+# observatory phase (and the M6.1 gate run caught exactly that lie).
 #
 # Discipline learned on the first run: every cue-report is Write-Host
 # (console stream), NEVER Write-Output - the wait function's return
@@ -23,7 +28,14 @@
 param(
     [int]$Port = 4444,
     [string]$SerialLog = "build\serial.log",
-    [int]$MaxWaitBootSec = 150
+    [int]$MaxWaitBootSec = 150,
+    # Milestone cues that MUST appear in the serial log before the
+    # run may count as success (M6.1 lesson: the round-trip cues used
+    # to be satisfiable by ANY userland - a pre-M6.1 u1 exited 0 and
+    # every cue fired, so the distinguishing evidence was never
+    # required. A cue the gate does not REQUIRE is not evidence; it
+    # is decoration. All require-cues land before the exit cue.)
+    [string[]]$RequireCues = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -91,6 +103,10 @@ $ok = $ok -and $w2
 
 $w3 = Wait-Serial "gate5: shell exited code=0" (2 * $MaxWaitBootSec)
 $ok = $ok -and $w3
+
+foreach ($cue in $RequireCues) {
+    $ok = $ok -and (Wait-Serial $cue (2 * $MaxWaitBootSec))
+}
 
 $c.Close()
 if ($ok) { Write-Host "GATE55-POSITIVE: ok"; exit 0 }

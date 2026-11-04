@@ -156,7 +156,7 @@ $(BUILD)/test_elf64: tests/test_elf64.c kernel/elf64.c \
 
 hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_format
-	$(BUILD)/test_fat32 $(BUILD)/testdisk.img
+	$(BUILD)/test_fat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
 	$(BUILD)/test_format
 	$(BUILD)/test_font $(BUILD)/font.psf2

@@ -158,4 +158,8 @@ M6.1 notes — the per-event input channel:
   with QMP-injected rel motion staged in the ring BEFORE spawn;
   negative = `input: idle - no rel motion after N polls (negative
   control ok)`; both exit 0 and the shell round-trip proof (M5.5
-  gate) continues on the same `run u1` typing, unchanged.
+  gate) continues on the same `run u1` typing, unchanged. The
+  driver requires these phase lines themselves (`-RequireCues`):
+  exit 0 of u1 means BOTH paths here, so without the cues the
+  round-trip proof alone cannot tell the phases apart — cues the
+  gate does not require are decoration.

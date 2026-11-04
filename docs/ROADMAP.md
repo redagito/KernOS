@@ -260,7 +260,7 @@ as listed below.
   round-trip rides unchanged on the same `run u1` typing. Boot-end
   counters: "input: events=52 dropped=0" (40 rel + 12 keys) and
   "input: events=12 dropped=0" (typed keys only) — drops named at
-  zero, as they should be. Host suite: 107 checks / 0 failures
+  zero, as they should be. Host suite: 108 checks / 0 failures
   (input suite 22: exact drain order, batch cap, ring wraparound,
   drop accounting at the 2^7-1 boundary, seq monotonic across a
   flood, the frozen record shape). Two real catches in this
@@ -275,6 +275,19 @@ as listed below.
   the SAME artifacts kept booting a pre-M6.1 userland whose exit 0
   faked a green run — `image` now depends on the fixture, and
   every build replants it fresh from the current u1/shell ELFs.
+  Hardening the same class into the gate itself: test_fat32 reads
+  the planted programs back through the module and must match the
+  build's u1/shell byte-for-byte (the 2 checks that made it 30 —
+  a fixture planted from another build is a HOST failure, before
+  any QEMU), and the typing driver grew -RequireCues: a run only
+  exits green when the milestone's OWN evidence lines exist on
+  serial; the round-trip cues alone (which a pre-phase u1
+  satisfied perfectly) are decoration, proven by the meta-negative
+  (a no-injection boot asked for the positive cue exits red, exit
+  1). Stated plainly, for every future gate: the artifact chain is
+  owned by the build graph; evidence identity is owned by REQUIRED
+  named cues and byte-exact binds — never by the absence of a
+  failure.
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

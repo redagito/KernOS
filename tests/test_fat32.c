@@ -29,8 +29,9 @@ static void check(int cond, const char *title)
 
 int main(int argc, char **argv)
 {
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <fixture-image>\n", argv ? argv[0] : "test_fat32");
+    if (argc != 4) {
+        fprintf(stderr, "usage: %s <fixture-image> <u1.elf> <shell.elf>\n",
+                argv ? argv[0] : "test_fat32");
         return 2;
     }
 
@@ -104,6 +105,34 @@ int main(int argc, char **argv)
         check(ssz <= 0 || (pbuf[0] == 0x7F && pbuf[1] == 'E' &&
                            pbuf[2] == 'L' && pbuf[3] == 'F'),
               "SHELL.ELF content starts with ELF magic");
+
+        /* M6.1 bind: the fixture must carry the ELFs THIS build just
+           linked - same shape the boot read them at runtime. A
+           fixture planted from an earlier build's u1/shell used to
+           fake a green typed gate (exit 0 without the phase ever
+           existing); comparing through the module itself catches
+           the split on host, before any QEMU. */
+        static u8 host_elf[16384];
+        for (int pair = 0; pair <= 1; ++pair) {
+            const char *name = pair ? BENCH_SHELL_FILE : BENCH_U1_FILE;
+            const char *path = pair ? argv[3] : argv[2];
+            FILE *f = fopen(path, "rb");
+            if (!f) {
+                check(0, "opening the built ELF (stale build tree?)");
+                continue;
+            }
+            size_t hlen = fread(host_elf, 1, sizeof host_elf, f);
+            int bad = ferror(f);
+            fclose(f);
+
+            /* read through the module again: independent of the
+               lookups above, bound to the bytes just linked */
+            int got = fat_read_file(name, pbuf, sizeof pbuf);
+            check(!bad && got == (int)hlen && got > 0 &&
+                      memcmp(pbuf, host_elf, hlen) == 0,
+                  pair ? "SHELL.ELF embed == shell.elf byte-for-byte"
+                       : "U1.ELF embed == u1.elf byte-for-byte");
+        }
 
         /* the lowercase lower-8.3 route the shell's spawn calls take */
         check(fat_read_file(BENCH_U1_FILE + 0, pbuf, sizeof pbuf) == usz &&

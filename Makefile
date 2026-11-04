@@ -53,6 +53,8 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/page.o \
 	$(OBJ)/heap.o \
 	$(OBJ)/fb.o \
+	$(OBJ)/fbcon.o \
+	$(OBJ)/font.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
@@ -149,12 +151,20 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
 	$(BUILD)/test_format
+	$(BUILD)/test_font $(BUILD)/font.psf2
 
 # vsnprintf is libc's one portable-holy module: it answers for itself
 # on the host, so the boot gate never has to prove formatting.
 $(BUILD)/test_format: tests/test_format.c libc/src/format.c
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Ilibc/include -o $@ tests/test_format.c libc/src/format.c
+
+# The console font answers for itself on the host: the container
+# contract (PSF2 fields) and the glyph presence rules are checked on
+# exactly the build/font.psf2 the kernel embeds.
+$(BUILD)/test_font: tests/test_font.c $(BUILD)/font.psf2
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -o $@ tests/test_font.c
 
 # -----
 # Compilation
@@ -218,6 +228,24 @@ $(OBJ)/heap.o: kernel/arch/x86_64/heap.c
 $(OBJ)/fb.o: kernel/arch/x86_64/fb.c kernel/arch/x86_64/fb.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/fbcon.o: kernel/arch/x86_64/fbcon.c kernel/arch/x86_64/fbcon.h
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+# The console font is generated, then embedded: hand-drawn cells adore
+# only tools/mkfont.c (host), so the kernel rebuilds the blob whenever
+# the art or the tool moves.
+$(BUILD)/mkfont: tools/mkfont.c
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -o $@ $<
+
+$(BUILD)/font.psf2: $(BUILD)/mkfont tools/mkfont.c
+	$(BUILD)/mkfont --out $@
+
+$(OBJ)/font.o: kernel/arch/x86_64/font.s $(BUILD)/font.psf2
+	@mkdir -p $(@D)
+	$(AS) -o $@ $<
 
 $(OBJ)/pci.o: kernel/arch/x86_64/pci.c
 	@mkdir -p $(@D)

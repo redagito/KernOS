@@ -175,6 +175,19 @@ as listed below.
   which in 32-bit mode kept garbage in the upper half (the PCI walk
   leaves a slot address there) and scribbled the whole 4 GiB instead
   of one sector — now full-ECX loads.
+- **M5.7 — the framebuffer console (locked 2026-11-03)**
+  The console moves from BIOS text cells to real pixels: the kernel
+  embeds a PSF2 font blob (tools/mkfont.c — hand-drawn 8x16 cells,
+  PSF2 = the standard console-font container, host-validated by
+  test_font before any boot depends on it) and kernel/arch/x86_64/
+  fbcon.c validates the header, blits cells and hard-scrolls through
+  the M5.6 LFB only (absence keeps the VGA text console, named).
+  Gates: scroll-echo (bottom-row RGB stamps + two pure-newline
+  scrolls read back 16*k pixels higher) and the banner ink count,
+  plus the first SCREEN evidence — a QEMU QMP screendump
+  (tools/qmp-dump.py) of the rendered banner reviewed by eye.
+  Why embedded and not a FAT file: the console must print before and
+  independent of the storage stack, exactly like serial/VGA did.
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

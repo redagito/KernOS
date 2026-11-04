@@ -25,6 +25,7 @@
 #include "arch/x86_64/sched.h"
 #include "arch/x86_64/kbd.h"
 #include "arch/x86_64/fb.h"
+#include "arch/x86_64/fbcon.h"
 
 /* M5.1: the v0 syscall ABI exercised from the caller side - the same
    four-step shape userland will use (docs/syscall-abi.md). RAX carries
@@ -287,6 +288,79 @@ void kernel_main(void)
             } else {
                 serial_puts("fb: pixel echo FAILED\n");
             }
+        }
+    }
+
+    /* M5.7 fbcon gate: the first thing the framebuffer ever paints.
+       The embedded PSF2 blob is validated here (named refusal, boot
+       continues on the text console). Evidence order: (1) scroll test
+       — fill the screen with printable character rain, stamp the
+       bottom row with three distinct RGB words, two pure-newline
+       scrolls, read the stamps back 16*k pixels higher (the scroller
+       proves itself byte-for-byte, not just visibly); (2) banner last
+       so the screendump evidence shows it, with banner ink counted.
+       CAREFUL: putc auto-wraps when a cell row fills — a line drawn
+       with fbcon_cols() cells terminates itself, an extra '\n' would
+       double-advance. */
+    if (!fb_present()) {
+        serial_puts("fbcon: absent - keeping VGA text console\n");
+    } else if (fbcon_init() < 0) {
+        serial_puts("fbcon: psf2 header FAILED (embedded blob)\n");
+    } else {
+        /* (1) full-screen fill + scroll stress, stamps after fill so
+           nothing but the scroller itself ever moves them */
+        {
+            u32 r;
+            for (r = 0; r + 1 < fbcon_rows(); ++r) {
+                u32 x;
+                char ch = (char)('!' + r * 11 % 95);
+                for (x = 0; x < fbcon_cols(); ++x) {
+                    fbcon_putc(ch);          /* auto-wraps the row */
+                    ch = (char)('!' + (ch - '!' + 7) % 95);
+                }
+            }
+        }
+        {
+            u32 y_stamp = (fbcon_rows() - 1) * 16;
+            fb_pixel_set(0, y_stamp, 0x112233);
+            fb_pixel_set(1, y_stamp, 0x445566);
+            fb_pixel_set(2, y_stamp, 0x778899);
+            fbcon_puts("\n\n");              /* two hard scrolls */
+
+            u64 k = fbcon_scrolls();
+            if (k == 2 &&
+                fb_pixel_get(0, y_stamp - 16 * (u32)k) == 0x112233 &&
+                fb_pixel_get(1, y_stamp - 16 * (u32)k) == 0x445566 &&
+                fb_pixel_get(2, y_stamp - 16 * (u32)k) == 0x778899) {
+                serial_puts("fbcon: scroll echo ok scrolls=");
+                putdec(k);
+                serial_puts("\n");
+            } else {
+                serial_puts("fbcon: scroll echo FAILED\n");
+            }
+        }
+
+        /* (2) banner last: rows 0..2, then one printed line-up of the
+           font for the screendump. */
+        {
+            u32 ink = 0;
+            fbcon_clear();
+            fbcon_puts("KernOS x86-64\n");
+            fbcon_puts("fbcon: 8x16 psf2 console (M5.7)\n");
+            fbcon_puts("ksh still on serial (M6 GUI later)\n");
+
+            for (u32 y = 0; y < 16 && y < fb_height(); ++y)
+                for (u32 x = 0; x < fb_width(); ++x)
+                    if (fb_pixel_get(x, y) == fbcon_fg()) ++ink;
+            if (ink) {
+                serial_puts("fbcon: banner ink px=");
+                putdec((u64)ink);
+                serial_puts("\n");
+            } else {
+                serial_puts("fbcon: banner ink FAILED\n");
+            }
+
+            fbcon_puts("PSF2 A-Z 0-9: !\"#$%&'()*+,-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\n");
         }
     }
 

@@ -291,48 +291,60 @@ void sched_wake_all(int wq)
 
 void sched_block(int wq)
 {
+    /*
+     * The parked-thread contract (M5.10 rewrite), record vs CPU:
+     *
+     *   - state T_WAITING means "not on any CPU, parked on waitq";
+     *     while this thread is ON a CPU it is cur and (in a world it
+     *     can see) the record reads RUNNABLE. A record that lies is
+     *     the bug this rewrite removes.
+     *   - wake is a state flip only (wake_all never switches). The
+     *     woken thread re-runs this loop: peers first, own wake as
+     *     the in-place resume, everyone else keeps parking.
+     *   - the park loop is REAL: one cli;hlt;cli per iteration, and
+     *     every un-hlt rescans both exits. (The previous version's
+     *     loop body ended in an unconditional break - one hlt, then
+     *     the empty dispatch path fell through and RETURNED IN PLACE
+     *     with the record still T_WAITING: a thread running while
+     *     tagged parked, waitq still armed, wake edges wasted.)
+     */
     struct thread *me = cur;
     me->state = T_WAITING;
     me->waitq = wq;
 
-    for (int off = 1; off <= MAX_THREADS; ++off) {
-        int i = (me->id + off) % MAX_THREADS;
-        struct thread *to = &threads[i];
-        if (to->state != T_RUNNABLE || i == me->id)
-            continue;
-
-        switch_into(me, to);
-        swtch(&me->ctx, to->ctx);
-        /* Resumed: woken and scheduled again. IF is still OFF by the
-           block contract - a gate caller continues its dispatch (the
-           stub's iretq restores IF), a kernel caller sti's itself. */
-        return;
-    }
-
-    /* Nobody runnable at all: every thread waits on IO. Park with IF
-       open until IRQ wakes eat the hlt, then look for work again - a
-       wake flips our peers to RUNNABLE straight from the IRQ handler. */
     for (;;) {
-        __asm__ volatile("sti\n\thlt\n\tcli" ::: "memory");
-        for (int i = 0; i < MAX_THREADS; ++i)
-            if (i != me->id && threads[i].state == T_RUNNABLE)
-                goto awake;
-        /* woke for nothing (e.g. a tick): hlt again */
-    awake:
-        break;
-    }
+        /* peer dispatch first: hand the CPU on, keep waiting */
+        for (int off = 1; off <= MAX_THREADS; ++off) {
+            int i = (me->id + off) % MAX_THREADS;
+            struct thread *to = &threads[i];
+            if (to->state != T_RUNNABLE || i == me->id)
+                continue;
 
-    /* Someone else is runnable now; this thread stays WAITING until
-       its own wake arrives, but the CPU must go somewhere - hand it
-       off after flipping ourselves back so the state stays truthful. */
-    for (int off = 1; off <= MAX_THREADS; ++off) {
-        int i = (me->id + off) % MAX_THREADS;
-        struct thread *to = &threads[i];
-        if (to->state == T_RUNNABLE && i != me->id) {
             switch_into(me, to);
             swtch(&me->ctx, to->ctx);
+            /* Resumed: woken and scheduled again. The wake made the
+               record RUNNABLE before we ran; our waitq is spent. */
+            me->waitq = 0;
+            /* IF is still OFF by the block contract - a gate caller
+               continues its dispatch (the stub's iretq restores IF),
+               a kernel caller sti's itself. */
             return;
         }
+
+        /* no peer: did OUR own wake already land? (A wake that flips
+           only `me` exits here - the park has no one to hand the CPU
+           to, and resuming in place is the only truthful move: the
+           record is already RUNNABLE, so heal the queue claim and
+           go.) Resumed IF off, exactly like the switch path. */
+        if (me->state == T_RUNNABLE) {
+            me->waitq = 0;             /* no longer parked anywhere */
+            return;
+        }
+
+        /* still genuinely waiting on IO: park with IF open until an
+           IRQ (a wake or a tick) un-hlts us - then loop and rescan
+           both exits. A tick that woke nobody parks again. */
+        __asm__ volatile("sti\n\thlt\n\tcli" ::: "memory");
     }
 }
 

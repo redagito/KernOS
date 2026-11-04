@@ -47,6 +47,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/irq.o \
 	$(OBJ)/pit.o \
 	$(OBJ)/kbd.o \
+	$(OBJ)/mouse.o \
 	$(OBJ)/sched.o \
 	$(OBJ)/mem.o \
 	$(OBJ)/pmm.o \
@@ -202,6 +203,10 @@ $(OBJ)/irq.o: kernel/arch/x86_64/irq.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/kbd.o: kernel/arch/x86_64/kbd.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/mouse.o: kernel/arch/x86_64/mouse.c kernel/arch/x86_64/mouse.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

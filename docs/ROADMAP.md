@@ -188,6 +188,26 @@ as listed below.
   (tools/qmp-dump.py) of the rendered banner reviewed by eye.
   Why embedded and not a FAT file: the console must print before and
   independent of the storage stack, exactly like serial/VGA did.
+- **M5.8 — the PS/2 mouse (locked 2026-11-04)**
+  The input pair completes: kernel/arch/x86_64/mouse.c arms the
+  i8042 aux channel (0xA8, config IRQ12 on + aux clock live +
+  translation off, 0xF4 with the 0xFA ack consumed synchronously
+  BEFORE IRQ12 unmasked - no ack is the named "aux refused"). The
+  IRQ handler consumes only aux-origin bytes (status bit 5), feeds a
+  3-byte state machine with bit-3 sync, drops overflow packets into
+  a counter (lost motion is named, never decoded as seen), and
+  decodes 9-bit signed deltas; consumers read settled totals only,
+  the per-event API waits for the M6 input layer. kbd.c gains an aux
+  guard so IRQ1 never steals mouse bytes. Gate evidence: QMP
+  injection (tools/qmp-mouse.py) of relative moves while the gate
+  window runs -> "mouse: gate ok events=N dx=+\226 ...\ dy=...\";
+  no injection -> the positive-shaped "mouse: idle - no motion
+  (negative control ok)". Real bug found by the gate: irq_enable()
+  never unmasked the master PIC's cascade line, so IRQ12 was the
+  FIRST interrupt a slave line could not deliver - fixed with the
+  unmask. Note on axes: PS/2 dy is up-positive on the wire, so an
+  injected screen-down motion arrives as +dy; the wire is the truth
+  the driver reports.
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

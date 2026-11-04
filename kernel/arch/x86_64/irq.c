@@ -55,6 +55,13 @@ void irq_enable(u8 irq)
     port  = (irq < 8) ? MASTER_DATA : SLAVE_DATA;
     mask  = (u8)in8(port) & ~(u8)(1u << (irq % 8));
     out8(port, mask);
+    if (irq >= 8) {
+        /* slave lines ride master pin 2 (cascade); if master's own
+           mask still holds that line shut, unmasking the slave is
+           noise - unmask the cascade with the slave line. */
+        mask = (u8)in8(MASTER_DATA) & (u8)~0x04;
+        out8(MASTER_DATA, mask);
+    }
 }
 
 void irq_set_handler(u8 irq, irq_handler_t fn)

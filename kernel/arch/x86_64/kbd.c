@@ -83,6 +83,9 @@ static void kbd_handler(struct trapframe *tf)
     (void)tf;
     u8 st = in8(KBD_STAT);
     if (!(st & 0x01)) return;          /* no byte: controller ghost */
+    if (st & 0x20) return;             /* aux-origin byte (M5.8): the
+                                          mouse driver's claim on
+                                          IRQ12 - never steal it    */
 
     u8 sc = in8(KBD_DATA);
 

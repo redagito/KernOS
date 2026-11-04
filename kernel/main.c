@@ -24,6 +24,7 @@
 #include "arch/x86_64/syscall.h"
 #include "arch/x86_64/sched.h"
 #include "arch/x86_64/kbd.h"
+#include "arch/x86_64/mouse.h"
 #include "arch/x86_64/fb.h"
 #include "arch/x86_64/fbcon.h"
 
@@ -462,6 +463,13 @@ void kernel_main(void)
     irq_init();
     kbd_init();                     /* M5.5: IRQ1 now load-bearing (READ) */
     serial_puts("kbd: IRQ1 armed\n");
+
+    mouse_init();                   /* M5.8: PS/2 aux, IRQ12. Synchronous
+                                       handshake with IRQ12 still masked;
+                                       outcome is named at the gate below
+                                       (no ack = stays asleep), not here. */
+    serial_puts("mouse: aux armed\n");
+
     sched_init();
     pit_init();
     thread_spawn("A", worker, (void *)(long)'A');
@@ -480,6 +488,58 @@ void kernel_main(void)
     serial_puts(" ticks=");
     putdec(pit_ticks());
     serial_puts("\n");
+
+    /* M5.8 mouse gate: IRQ12 is live, so give the aux port a bounded
+       window of motion, exiting early once packets arrive. Signed
+       totals print as sign + magnitude (main.c's putdec is u64-only;
+       deltas fit in two hex/quartet digits easily, but sign rule is
+       the same either way). */
+    {
+        u64 t0 = pit_ticks();
+        while (pit_ticks() - t0 < 500 && mouse_packets() < 3)
+            __asm__ volatile("hlt");
+
+        serial_puts("mouse: ");
+        if (!mouse_armed()) {
+            serial_puts("aux refused (no device)\n");
+        } else if (mouse_packets() == 0) {
+            serial_puts("idle - no motion (negative control ok)\n");
+        } else {
+            u64 dx = mouse_dx_total();
+            u64 dy = mouse_dy_total();
+            i64 sdx = (i64)dx;
+            i64 sdy = (i64)dy;
+
+            /* positive gate: at least 3 packets AND real motion in
+               BOTH axes. Anything decoded-shapeless is named FAILED. */
+            if (mouse_packets() >= 3 && sdx != 0 && sdy != 0) {
+                serial_puts("gate ok events=");
+                putdec(mouse_packets());
+                serial_puts(" dx=");
+                serial_puts(sdx < 0 ? "-" : "+");
+                putdec((u64)(sdx < 0 ? -sdx : sdx));
+                serial_puts(" dy=");
+                serial_puts(sdy < 0 ? "-" : "+");
+                putdec((u64)(sdy < 0 ? -sdy : sdy));
+                serial_puts(" buttons=");
+                putdec((u64)mouse_buttons());
+                serial_puts("\n");
+            } else {
+                serial_puts("gate FAILED (packets=");
+                putdec(mouse_packets());
+                serial_puts(" dx=");
+                putdec(dx);
+                serial_puts(" dy=");
+                putdec(dy);
+                serial_puts(")\n");
+            }
+            if (mouse_overflows()) {
+                serial_puts("mouse: overflow packets dropped: ");
+                putdec(mouse_overflows());
+                serial_puts("\n");
+            }
+        }
+    }
 
     /* M5.1: syscall gate self-test - the ABI observed end to end, run
        after sched_init so getpid answers truthfully (pid == tid, and

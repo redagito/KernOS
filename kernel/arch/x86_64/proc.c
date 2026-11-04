@@ -3,6 +3,7 @@
 #include "proc.h"
 #include "pmm.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * M5.3 process model, see proc.h for the contract.
@@ -33,9 +34,9 @@ void proc_space_destroy(const u64 *frames, int nframes)
 {
     for (int i = 0; i < nframes; ++i)
         pmm_free(frames[i]);
-    serial_puts("proc: space freed frames=");
-    serial_puts_hex(nframes);
-    serial_puts("\n");
+    console_puts("proc: space freed frames=");
+    console_puts_hex(nframes);
+    console_puts("\n");
 }
 
 /* Copy one segment's file bytes into the allocated span pages.
@@ -69,9 +70,9 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
 
     int rc = elf64_plan(elf, elf_len, &entry, segs, &nsegs);
     if (rc < 0) {
-        serial_puts("proc: elf refused - ");
-        serial_puts(elf64_errname(rc));
-        serial_puts("\n");
+        console_puts("proc: elf refused - ");
+        console_puts(elf64_errname(rc));
+        console_puts("\n");
         return 0;
     }
 
@@ -93,9 +94,9 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
     span_lo &= ~0xFFFULL;
     u64 span_pages = (span_hi - span_lo + 0xFFF) / 0x1000;
     if (span_pages > USER_MAX_PAGES) {
-        serial_puts("proc: elf refused - span ");
-        serial_puts_hex(span_pages);
-        serial_puts(" pages exceeds budget\n");
+        console_puts("proc: elf refused - span ");
+        console_puts_hex(span_pages);
+        console_puts(" pages exceeds budget\n");
         return 0;
     }
 
@@ -166,20 +167,20 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
         ptv[0x1FC + spg] = pa | 0x07;
     }
 
-    serial_puts("proc: space built elf cr3=");
-    serial_puts_hex(pml4c);
-    serial_puts(" frames=");
-    serial_puts_hex(nf);
-    serial_puts(" entry=");
-    serial_puts_hex(entry);
-    serial_puts("\n");
+    console_puts("proc: space built elf cr3=");
+    console_puts_hex(pml4c);
+    console_puts(" frames=");
+    console_puts_hex(nf);
+    console_puts(" entry=");
+    console_puts_hex(entry);
+    console_puts("\n");
 
     *nframes  = nf;
     *entry_out = entry;
     return pml4c;
 
 refuse_window:
-    serial_puts("proc: elf refused - outside the user window\n");
+    console_puts("proc: elf refused - outside the user window\n");
     return 0;
 }
 

@@ -4,6 +4,7 @@
 #include "pmm.h"
 #include "page.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * AHCI HBA life cycle over polling DMA.
@@ -48,11 +49,11 @@ static void spin_wait(volatile u32 *r, u32 mask, const char *what)
     u32 n = 0;
     while ((*r & mask) != 0) {
         if (++n > 8000000) {
-            serial_puts("ahci: timeout: ");
-            serial_puts(what);
-            serial_puts(" (val=");
-            serial_puts_hex(*r);
-            serial_puts(")\n");
+            console_puts("ahci: timeout: ");
+            console_puts(what);
+            console_puts(" (val=");
+            console_puts_hex(*r);
+            console_puts(")\n");
             return;
         }
         __asm__ volatile("pause");
@@ -112,13 +113,13 @@ static int issue(u8 cmd, u64 lba, u16 count, u64 buf_pa, int is_write)
         return -1;                       /* timeout already reported */
 
     if (*preg(active_port, 0x20) & 1) {  /* TFD.ERR */
-        serial_puts("ahci: op err cmd=");
-        serial_puts_hex(cmd);
-        serial_puts(" lba=");
-        serial_puts_hex(lba);
-        serial_puts(" tfd=");
-        serial_puts_hex(*preg(active_port, 0x20));
-        serial_puts("\n");
+        console_puts("ahci: op err cmd=");
+        console_puts_hex(cmd);
+        console_puts(" lba=");
+        console_puts_hex(lba);
+        console_puts(" tfd=");
+        console_puts_hex(*preg(active_port, 0x20));
+        console_puts("\n");
         return -1;
     }
     return 0;
@@ -133,7 +134,7 @@ void ahci_init(void)
         if (c->class_code == 0x010601) { d = c; break; }
     }
     if (!d) {
-        serial_puts("ahci: no HBA on the bus\n");
+        console_puts("ahci: no HBA on the bus\n");
         return;
     }
 
@@ -143,7 +144,7 @@ void ahci_init(void)
 
     u64 bar = d->bar[5] & ~0xFFFULL;
     if (page_map_at(AHCI_HBA_VA, bar, 1) < 0) {
-        serial_puts("ahci: BAR map refused\n");
+        console_puts("ahci: BAR map refused\n");
         return;
     }
     hba = (volatile u32 *)AHCI_HBA_VA;
@@ -151,33 +152,33 @@ void ahci_init(void)
     mmio_set(0x04, 1u << 31);            /* GHC.AE */
     mmio_clr(0x04, 1u << 1);             /* GHC.IE = 0: fully polled */
 
-    serial_puts("ahci: HBA ");
-    serial_puts_hex(bar);
-    serial_puts(" -> ");
-    serial_puts_hex(AHCI_HBA_VA);
-    serial_puts(" ver=");
-    serial_puts_hex(*reg32(0x10));
-    serial_puts(" ports=");
-    serial_puts_hex(*reg32(0x0C));
-    serial_puts("\n");
+    console_puts("ahci: HBA ");
+    console_puts_hex(bar);
+    console_puts(" -> ");
+    console_puts_hex(AHCI_HBA_VA);
+    console_puts(" ver=");
+    console_puts_hex(*reg32(0x10));
+    console_puts(" ports=");
+    console_puts_hex(*reg32(0x0C));
+    console_puts("\n");
 
     for (int p = 0; p <= 5; ++p) {       /* ICH9: 6 ports (0x3F in PI?) */
         if (port_present(p)) { active_port = p; break; }
     }
     if (active_port < 0) {
-        serial_puts("ahci: no live port\n");
+        console_puts("ahci: no live port\n");
         return;
     }
-    serial_puts("ahci: port ");
-    serial_putc((char)('0' + active_port));
-    serial_puts(" live (det=3)\n");
+    console_puts("ahci: port ");
+    console_putc((char)('0' + active_port));
+    console_puts(" live (det=3)\n");
 
     /* DMA structures: fresh pmm frames (zeroed - freestanding). */
     hdr_frame = pmm_alloc();
     tbl_frame = pmm_alloc();
     rx_frame  = pmm_alloc();
     if (!hdr_frame || !tbl_frame || !rx_frame) {
-        serial_puts("ahci: out of frames\n");
+        console_puts("ahci: out of frames\n");
         return;
     }
     for (u32 i = 0; i < FRAME_SIZE / sizeof(u64); ++i)
@@ -202,7 +203,7 @@ void ahci_init(void)
     /* --- IDENTIFY: model string + LBA48 capacity --- */
     u64 id_fr = pmm_alloc();
     if (issue(0xEC, 0, 1, id_fr, 0) < 0) {
-        serial_puts("ahci: IDENTIFY failed\n");
+        console_puts("ahci: IDENTIFY failed\n");
         pmm_free(id_fr);
         return;
     }
@@ -220,26 +221,26 @@ void ahci_init(void)
     model[last] = 0;
     pmm_free(id_fr);
 
-    serial_puts("ahci: drive '");
-    serial_puts(model);
-    serial_puts("' sectors=");
-    serial_puts_hex(sectors_total);
-    serial_puts("\n");
+    console_puts("ahci: drive '");
+    console_puts(model);
+    console_puts("' sectors=");
+    console_puts_hex(sectors_total);
+    console_puts("\n");
 
     /* --- read test: LBA 0..7 (boot disk untouched; the test disk holds
        our marker at LBA 100), print the first bytes in full hex --- */
     u64 rbuf = pmm_alloc();
     if (ahci_read(0, (void *)rbuf, 8) == 0) {
         volatile u8 *b = (volatile u8 *)rbuf;
-        serial_puts("ahci: read lba0-7 ok, bytes[0..3]=");
+        console_puts("ahci: read lba0-7 ok, bytes[0..3]=");
         for (int i = 0; i < 4; ++i) {
-            serial_putc("0123456789abcdef"[(b[i] >> 4) & 0xF]);
-            serial_putc("0123456789abcdef"[b[i] & 0xF]);
+            console_putc("0123456789abcdef"[(b[i] >> 4) & 0xF]);
+            console_putc("0123456789abcdef"[b[i] & 0xF]);
         }
-        serial_puts("\n");
+        console_puts("\n");
         pmm_free(rbuf);
     } else {
-        serial_puts("ahci: read test failed\n");
+        console_puts("ahci: read test failed\n");
     }
 }
 
@@ -264,7 +265,7 @@ u64 ahci_sector_count(void)
 
 void ahci_info(void)
 {
-    serial_puts("ahci: capacity=");
-    serial_puts_hex(sectors_total);
-    serial_puts(" sectors\n");
+    console_puts("ahci: capacity=");
+    console_puts_hex(sectors_total);
+    console_puts(" sectors\n");
 }

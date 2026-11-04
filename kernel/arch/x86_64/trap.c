@@ -2,6 +2,7 @@
 #include "trap.h"
 #include "idt.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * Exception dump: M2.1 policy is print-and-park. There is no recovery
@@ -34,11 +35,11 @@ static const char *reg_names[15] = {
     "r8",  "rcx", "rdx", "rsi", "rdi",
 };
 
-static void prints(const char *s) { serial_puts(s); }
+static void prints(const char *s) { console_puts(s); }
 
 static void prnum(u64 v)
 {
-    serial_puts_hex(v);
+    console_puts_hex(v);
 }
 
 static u64 cr_read(int which)

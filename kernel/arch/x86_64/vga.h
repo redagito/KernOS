@@ -33,7 +33,4 @@ static inline u8 vga_attr(enum vga_color fg, enum vga_color bg)
 }
 
 void vga_clear(void);
-void vga_set_attr(u8 new_attr);
 void vga_putc(char c);
-void vga_puts(const char *s);
-void vga_puts_hex(u64 value);   /* 16 hex digits, no 0x prefix */

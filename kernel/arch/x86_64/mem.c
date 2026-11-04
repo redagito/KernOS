@@ -1,6 +1,7 @@
 #include <kernel/types.h>
 #include "mem.h"
 #include "serial.h"
+#include "console.h"
 
 #define E820_COUNT_ADDR  0x600ULL
 #define E820_DATA_ADDR   0x608ULL
@@ -21,9 +22,19 @@ static struct e820_entry *entry(int i)
     return (struct e820_entry *)(E820_DATA_ADDR + (u64)i * 24);
 }
 
+/* Stage 2 plants the E820 count at 0x600 (boot-time RAM, not a C
+   object). The register-barrier make the constant address opaque to
+   the optimizer: gcc's array-bounds checker would otherwise flag the
+   cast as a read of a zero-size array once it folds 0x600 in. */
+__attribute__((noinline)) static u64 leak64(u64 at)
+{
+    __asm__ volatile("" : "+r"(at));
+    return *(volatile u64 *)at;
+}
+
 int memmap_count(void)
 {
-    u64 n = *(volatile u64 *)E820_COUNT_ADDR;
+    u64 n = leak64(E820_COUNT_ADDR);
     if (n > E820_MAX_ENTRIES) return 0;
     return (int)n;
 }
@@ -40,12 +51,12 @@ void memmap_boot_init(void)
 {
     int n = memmap_count();
 
-    serial_puts("memmap: ");
-    serial_puts_hex((u64)n);
-    serial_puts(" entries\n");
+    console_puts("memmap: ");
+    console_puts_hex((u64)n);
+    console_puts(" entries\n");
 
     if (n == 0) {
-        serial_puts("memmap: no usable map (capture failed)\n");
+        console_puts("memmap: no usable map (capture failed)\n");
         return;
     }
 
@@ -53,14 +64,14 @@ void memmap_boot_init(void)
     u32 type;
     for (int i = 0; i < n; ++i) {
         if (memmap_get(i, &base, &len, &type) < 0) break;
-        serial_puts("  base=");
-        serial_puts_hex(base);
-        serial_puts(" len=");
-        serial_puts_hex(len);
-        serial_puts(" type=");
-        serial_puts_hex(type);
-        serial_puts(" (");
-        serial_puts(type <= 5 ? type_names[type] : "?");
-        serial_puts(")\n");
+        console_puts("  base=");
+        console_puts_hex(base);
+        console_puts(" len=");
+        console_puts_hex(len);
+        console_puts(" type=");
+        console_puts_hex(type);
+        console_puts(" (");
+        console_puts(type <= 5 ? type_names[type] : "?");
+        console_puts(")\n");
     }
 }

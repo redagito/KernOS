@@ -1,6 +1,7 @@
 #include <kernel/types.h>
 #include "pci.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * Type-1 config access (the only kind this machine has): write the
@@ -19,7 +20,7 @@ static int ndevs;
 static void puthex(u32 v, int digits)
 {
     for (int i = digits - 1; i >= 0; --i)
-        serial_putc("0123456789abcdef"[(v >> (i * 4)) & 0xF]);
+        console_putc("0123456789abcdef"[(v >> (i * 4)) & 0xF]);
 }
 
 static void putdec(u32 n)
@@ -27,7 +28,7 @@ static void putdec(u32 n)
     char b[16]; int i = (int)sizeof b - 1; b[i] = 0;
     if (!n) b[--i] = '0';
     while (n) { b[--i] = (char)('0' + n % 10); n /= 10; }
-    serial_puts(&b[i]);
+    console_puts(&b[i]);
 }
 
 static void outl_addr(u16 port, u32 val) { __asm__ volatile("outl %0, %1" :: "a"(val), "Nd"(port)); }
@@ -93,35 +94,35 @@ void pci_init(void)
         }
     }
 
-    serial_puts("pci: ");
+    console_puts("pci: ");
     putdec((u32)ndevs);
-    serial_puts(" devices\n");
+    console_puts(" devices\n");
 
     for (int i = 0; i < ndevs; ++i) {
         struct pci_dev *d = &devs[i];
-        serial_puts("  00:");
+        console_puts("  00:");
         puthex(d->dev, 2);
-        serial_puts(".");
+        console_puts(".");
         puthex(d->fn, 1);
-        serial_puts(" ");
+        console_puts(" ");
         puthex(d->vid, 4);
-        serial_puts(":");
+        console_puts(":");
         puthex(d->did, 4);
-        serial_puts(" class ");
+        console_puts(" class ");
         puthex(d->class_code, 6);
-        serial_puts(" irq ");
+        console_puts(" irq ");
         puthex(d->irq_pin, 1);
-        serial_puts("/");
+        console_puts("/");
         puthex(d->irq_line, 2);
         if ((d->class_code >> 16) == 0x01) {   /* storage: show the BARs */
             for (int b = 0; b < 6; ++b) {
-                serial_puts(" bar");
+                console_puts(" bar");
                 puthex(b, 1);
-                serial_puts("=");
+                console_puts("=");
                 puthex(d->bar[b], 8);
             }
         }
-        serial_puts("\n");
+        console_puts("\n");
     }
 }
 

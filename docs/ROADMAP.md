@@ -208,6 +208,28 @@ as listed below.
   unmask. Note on axes: PS/2 dy is up-positive on the wire, so an
   injected screen-down motion arrives as +dy; the wire is the truth
   the driver reports.
+- **M5.9 — one console, a visible face from byte one (locked 2026-11-04)**
+  kernel/arch/x86_64/console.c|h becomes the single boot log: every
+  kernel print (main, sched, AHCI, PCI, traps, syscalls, the user
+  shell echo) reaches serial ALWAYS (the evidence channel the gates
+  read) plus whatever face the machine has: VGA text from the first
+  byte, and at the M5.7 fbcon gate the LFB console takes over — the
+  LFB is cleared and the log continues mid-stream (the switch line
+  names the split honestly: earlier lines live on text). Console
+  events now also land there, so the user shell echo is visible.
+  Gates: the M5.7 banner proof evolves into the mirror gate —
+  "console: mirror ok face=fbcon ink=966 mirrored=1150" (ink = the
+  switch line's black-on-pixels; mirrored = bytes carried across the
+  switch) — with the scroll-echo gate unchanged, and the SCREEN
+  evidence matured: the screendump now shows the WHOLE log tail
+  (PCI/AHCI/FAT/sched/syscall/ELF/gate5) as rendered glyphs.
+  Negative control (-vga none): named fb/fbcon absences, the console
+  stays on the text face, rhythm shows no V, boot completes. Full
+  -B build also surfaced three latent type bugs (first triggered by
+  the cross-file rename forcing full recompiles): swtch's save-slot
+  is u64** not u64*, idt.c's stub table is u64[] not void*[], and
+  mem.c's 0x600 E820 read needed the fixed-address read discipline
+  (register barrier, same family as fb.c's rd_le32).
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

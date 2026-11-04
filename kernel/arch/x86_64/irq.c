@@ -1,6 +1,7 @@
 #include <kernel/types.h>
 #include "irq.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * 8259A cascade reprogrammed inside the kernel. BIOS got us here with
@@ -98,8 +99,8 @@ void irq_dispatch(struct trapframe *tf)
     if (vec == 39) { spurious_master++; out8(MASTER_CMD, 0x20); }
     else if (vec == 47) { spurious_slave++; out8(SLAVE_CMD, 0x20); }
     else {
-        serial_puts("IRQ: unmapped vec ");
-        serial_puts_hex(vec);
-        serial_puts("\n");
+        console_puts("IRQ: unmapped vec ");
+        console_puts_hex(vec);
+        console_puts("\n");
     }
 }

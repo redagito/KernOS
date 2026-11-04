@@ -56,7 +56,7 @@ static u64 fault_stack[512];         /* 4 KiB, IST1 for #DF/#NMI/#MC  */
 
 /* Linker symbols from start.s/kernel.ld */
 extern u8 stack_top[];
-extern void *trap_stub_table[];
+extern u64 trap_stub_table[];
 
 extern const char *const trap_names[32];
 extern const u8 trap_ist[32];

@@ -6,6 +6,7 @@
  */
 
 #include "arch/x86_64/vga.h"
+#include "arch/x86_64/console.h"
 #include "arch/x86_64/serial.h"
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/trap.h"
@@ -106,7 +107,7 @@ static void putdec(u64 v)
     b[i] = 0;
     if (!v) b[--i] = '0';
     while (v) { b[--i] = (char)('0' + v % 10); v /= 10; }
-    serial_puts(&b[i]);
+    console_puts(&b[i]);
 }
 
 static void worker(void *arg)
@@ -114,8 +115,8 @@ static void worker(void *arg)
     char tag = (char)(long)arg;        /* 'A' or 'B' */
     u64 wakes = 0, reports = 0;
 
-    serial_putc(tag);
-    serial_puts(": enter\n");
+    console_putc(tag);
+    console_puts(": enter\n");
 
     for (;;) {
         __asm__ volatile("hlt");       /* sleep till the next tick slice */
@@ -123,10 +124,10 @@ static void worker(void *arg)
         if (wakes % 25 == 0 && reports < 3) {
             reports++;
             worker_reports++;
-            serial_putc(tag);
-            serial_puts(": report #");
+            console_putc(tag);
+            console_puts(": report #");
             putdec(reports);
-            serial_puts("\n");
+            console_puts("\n");
         }
     }
 }
@@ -135,23 +136,22 @@ void kernel_main(void)
 {
     vga_clear();
     serial_init();
+    console_init();          /* M5.9: the one boot log; face = VGA,
+                                serial already got everything from
+                                the very first printed byte */
 
     /* M5.6: parse the stage-2 VBE handoff FIRST - the block lives in
        boot RAM below 0x100000, and everything later in this function
        must not be able to disturb the only honest copy. */
     fb_init();
 
-    vga_puts("KernOS x86-64 kernel online\n");
-    serial_puts("KernOS x86-64 kernel online\n");
+    console_puts("KernOS x86-64 kernel online\n");
 
     char vendor[13];
     kernos_cpu_vendor(vendor);
-    vga_puts("CPU vendor: ");
-    vga_puts(vendor);
-    vga_puts("\n");
-    serial_puts("CPU vendor: ");
-    serial_puts(vendor);
-    serial_puts("\n");
+    console_puts("CPU vendor: ");
+    console_puts(vendor);
+    console_puts("\n");
 
     /* M3.1: the real physical memory map from the E820 boot ABI. */
     memmap_boot_init();
@@ -163,13 +163,13 @@ void kernel_main(void)
         u64 before = pmm_free_frames();
         u64 a = pmm_alloc(), b = pmm_alloc(), c = pmm_alloc();
 
-        serial_puts("pmm: alloc ");
-        serial_puts_hex(a);
-        serial_puts(" ");
-        serial_puts_hex(b);
-        serial_puts(" ");
-        serial_puts_hex(c);
-        serial_puts("\n");
+        console_puts("pmm: alloc ");
+        console_puts_hex(a);
+        console_puts(" ");
+        console_puts_hex(b);
+        console_puts(" ");
+        console_puts_hex(c);
+        console_puts("\n");
 
         if (a && b && c && (a & 0xFFF) == 0 && (b & 0xFFF) == 0 &&
             (c & 0xFFF) == 0 && a != b && b != c) {
@@ -178,17 +178,17 @@ void kernel_main(void)
             pmm_free(b);
             pmm_free(c);
             if (pmm_free_frames() == before) {
-                serial_puts("pmm: selftest ok\n");
+                console_puts("pmm: selftest ok\n");
             } else {
-                serial_puts("pmm: selftest FAILED (balance)\n");
+                console_puts("pmm: selftest FAILED (balance)\n");
             }
         } else {
-            serial_puts("pmm: selftest FAILED (alloc)\n");
+            console_puts("pmm: selftest FAILED (alloc)\n");
         }
     }
 
     trap_init();
-    serial_puts("traps online\n");
+    console_puts("traps online\n");
 
     /* M3.3 demand paging self-test:
        touch A (fresh 2 MiB block: PD + PT + page), touch B (same
@@ -208,17 +208,17 @@ void kernel_main(void)
             *c == 0x4343434343434343ULL) {
             u64 f, pdn, ptn, dat;
             pf_stats(&f, &pdn, &ptn, &dat);
-            serial_puts("pf: ok faults=");
-            serial_puts_hex(f);
-            serial_puts(" pd=");
-            serial_puts_hex(pdn);
-            serial_puts(" pt=");
-            serial_puts_hex(ptn);
-            serial_puts(" pages=");
-            serial_puts_hex(dat);
-            serial_puts("\n");
+            console_puts("pf: ok faults=");
+            console_puts_hex(f);
+            console_puts(" pd=");
+            console_puts_hex(pdn);
+            console_puts(" pt=");
+            console_puts_hex(ptn);
+            console_puts(" pages=");
+            console_puts_hex(dat);
+            console_puts("\n");
         } else {
-            serial_puts("pf: selftest FAILED (readback)\n");
+            console_puts("pf: selftest FAILED (readback)\n");
         }
     }
 
@@ -237,16 +237,16 @@ void kernel_main(void)
 
             if (p1[0] == 0xA5 && p1[99] == 0xA5 && sentinel &&
                 ((u64)h2 - (u64)h1) >= 112) {
-                serial_puts("heap: ok h1=");
-                serial_puts_hex((u64)h1);
-                serial_puts(" h2=");
-                serial_puts_hex((u64)h2);
-                serial_puts("\n");
+                console_puts("heap: ok h1=");
+                console_puts_hex((u64)h1);
+                console_puts(" h2=");
+                console_puts_hex((u64)h2);
+                console_puts("\n");
             } else {
-                serial_puts("heap: selftest FAILED (pattern)\n");
+                console_puts("heap: selftest FAILED (pattern)\n");
             }
         } else {
-            serial_puts("heap: selftest FAILED (alloc)\n");
+            console_puts("heap: selftest FAILED (alloc)\n");
         }
     }
 
@@ -259,20 +259,20 @@ void kernel_main(void)
     {
         u64 va = fb_map();
         if (!fb_present()) {
-            serial_puts("fb: absent - card offered no LFB (text console)\n");
+            console_puts("fb: absent - card offered no LFB (text console)\n");
         } else if (!va) {
-            serial_puts("fb: map FAILED\n");
+            console_puts("fb: map FAILED\n");
         } else {
             const u32 w = fb_width(), h = fb_height();
-            serial_puts("fb: mapped ");
+            console_puts("fb: mapped ");
             putdec((u64)w);
-            serial_puts("x");
+            console_puts("x");
             putdec((u64)h);
-            serial_puts("x32 pitch=");
+            console_puts("x32 pitch=");
             putdec((u64)fb_pitch());
-            serial_puts(" phys=");
-            serial_puts_hex(fb_phys());
-            serial_puts("\n");
+            console_puts(" phys=");
+            console_puts_hex(fb_phys());
+            console_puts("\n");
 
             fb_pixel_set(0,     0,     0x120000);   /* R 0x12 */
             fb_pixel_set(w - 1, 0,     0x001200);
@@ -285,9 +285,9 @@ void kernel_main(void)
                 fb_pixel_get(0,     h - 1) == 0x000012 &&
                 fb_pixel_get(w - 1, h - 1) == 0x201212 &&
                 fb_pixel_get(w / 2, h / 2) == 0x55AA55) {
-                serial_puts("fb: pixel echo ok\n");
+                console_puts("fb: pixel echo ok\n");
             } else {
-                serial_puts("fb: pixel echo FAILED\n");
+                console_puts("fb: pixel echo FAILED\n");
             }
         }
     }
@@ -304,9 +304,9 @@ void kernel_main(void)
        with fbcon_cols() cells terminates itself, an extra '\n' would
        double-advance. */
     if (!fb_present()) {
-        serial_puts("fbcon: absent - keeping VGA text console\n");
+        console_puts("fbcon: absent - keeping VGA text console\n");
     } else if (fbcon_init() < 0) {
-        serial_puts("fbcon: psf2 header FAILED (embedded blob)\n");
+        console_puts("fbcon: psf2 header FAILED (embedded blob)\n");
     } else {
         /* (1) full-screen fill + scroll stress, stamps after fill so
            nothing but the scroller itself ever moves them */
@@ -333,35 +333,33 @@ void kernel_main(void)
                 fb_pixel_get(0, y_stamp - 16 * (u32)k) == 0x112233 &&
                 fb_pixel_get(1, y_stamp - 16 * (u32)k) == 0x445566 &&
                 fb_pixel_get(2, y_stamp - 16 * (u32)k) == 0x778899) {
-                serial_puts("fbcon: scroll echo ok scrolls=");
+                console_puts("fbcon: scroll echo ok scrolls=");
                 putdec(k);
-                serial_puts("\n");
+                console_puts("\n");
             } else {
-                serial_puts("fbcon: scroll echo FAILED\n");
+                console_puts("fbcon: scroll echo FAILED\n");
             }
         }
 
-        /* (2) banner last: rows 0..2, then one printed line-up of the
-           font for the screendump. */
-        {
-            u32 ink = 0;
-            fbcon_clear();
-            fbcon_puts("KernOS x86-64\n");
-            fbcon_puts("fbcon: 8x16 psf2 console (M5.7)\n");
-            fbcon_puts("ksh still on serial (M6 GUI later)\n");
+        /* (2) the console takes the LFB as its face and keeps the
+           mirrored log going: clear the screen, print the switch
+           line, then count its ink - the first mirrored line IS the
+           black-on-pixels proof the console painted. */
+        console_fbcon();
+        console_puts("console: fbcon face (earlier lines on VGA text)\n");
 
-            for (u32 y = 0; y < 16 && y < fb_height(); ++y)
-                for (u32 x = 0; x < fb_width(); ++x)
-                    if (fb_pixel_get(x, y) == fbcon_fg()) ++ink;
-            if (ink) {
-                serial_puts("fbcon: banner ink px=");
-                putdec((u64)ink);
-                serial_puts("\n");
-            } else {
-                serial_puts("fbcon: banner ink FAILED\n");
-            }
-
-            fbcon_puts("PSF2 A-Z 0-9: !\"#$%&'()*+,-./0123456789:<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~\n");
+        u32 ink = 0;
+        for (u32 y = 0; y < 16 && y < fb_height(); ++y)
+            for (u32 x = 0; x < fb_width(); ++x)
+                if (fb_pixel_get(x, y) == fbcon_fg()) ++ink;
+        if (ink) {
+            console_puts("console: mirror ok face=fbcon ink=");
+            putdec((u64)ink);
+            console_puts(" mirrored=");
+            putdec(console_mirrored());
+            console_puts("\n");
+        } else {
+            console_puts("console: mirror ink FAILED\n");
         }
     }
 
@@ -382,7 +380,7 @@ void kernel_main(void)
             volatile u8 *b = (volatile u8 *)buf;
             int ok = 1;
             for (u32 i = 0; i < BENCH_MARKER_LEN; ++i) if (b[i] != marker13[i]) ok = 0;
-            serial_puts(ok ? "ahci: disk marker matches\n"
+            console_puts(ok ? "ahci: disk marker matches\n"
                            : "ahci: disk marker MISMATCH\n");
 
             for (u32 i = 0; i < BENCH_MARKER_LEN; ++i) ((volatile u8 *)buf)[i] = wrote13[i];
@@ -390,13 +388,13 @@ void kernel_main(void)
                 ahci_read(BENCH_WRITE_LBA, (void *)buf, 1) == 0) {
                 int ok2 = 1;
                 for (u32 i = 0; i < BENCH_MARKER_LEN; ++i) if (((volatile u8 *)buf)[i] != wrote13[i]) ok2 = 0;
-                serial_puts(ok2 ? "ahci: disk write-verify ok\n"
+                console_puts(ok2 ? "ahci: disk write-verify ok\n"
                                 : "ahci: disk write-verify MISMATCH\n");
             } else {
-                serial_puts("ahci: disk write/read op failed\n");
+                console_puts("ahci: disk write/read op failed\n");
             }
         } else {
-            serial_puts("ahci: disk marker read failed\n");
+            console_puts("ahci: disk marker read failed\n");
         }
         if (buf) pmm_free(buf);
     }
@@ -409,13 +407,13 @@ void kernel_main(void)
         if (fat_mount(&ahci_blk) == 0) {
             struct fat_info fi;
             fat_stats(&fi);
-            serial_puts("fat: mount ok data=");
-            serial_puts_hex(fi.data_start);
-            serial_puts(" root=");
-            serial_puts_hex(fi.root_clus);
-            serial_puts(" clusters=");
-            serial_puts_hex(fi.total_clusters);
-            serial_puts("\n");
+            console_puts("fat: mount ok data=");
+            console_puts_hex(fi.data_start);
+            console_puts(" root=");
+            console_puts_hex(fi.root_clus);
+            console_puts(" clusters=");
+            console_puts_hex(fi.total_clusters);
+            console_puts("\n");
 
             static u8 fatbuf[512];
             u32 size = (u32)fat_read_file(BENCH_FILE, fatbuf, sizeof fatbuf);
@@ -425,12 +423,12 @@ void kernel_main(void)
                 for (u32 i = 0; i < size; ++i)
                     if (fatbuf[i] != (u8)BENCH_SEED[i]) eq = 0;
 
-                serial_puts(eq ? "fat: seed matches: " : "fat: seed MISMATCH: ");
+                console_puts(eq ? "fat: seed matches: " : "fat: seed MISMATCH: ");
                 for (u32 i = 0; i < size; ++i) {
                     char c = (char)fatbuf[i];
-                    serial_putc(c == '\n' ? ' ' : c);
+                    console_putc(c == '\n' ? ' ' : c);
                 }
-                serial_puts("\n");
+                console_puts("\n");
 
                 if (eq) {
                     static u8 fatwb[512];
@@ -444,50 +442,50 @@ void kernel_main(void)
                         if (eq2)
                             for (u32 i = 0; i < size; ++i)
                                 if (fatbuf[i] != fatwb[i]) eq2 = 0;
-                        serial_puts(eq2 ? "fat: write-back verified\n"
+                        console_puts(eq2 ? "fat: write-back verified\n"
                                         : "fat: write-back MISMATCH\n");
                     } else {
-                        serial_puts("fat: write op refused\n");
+                        console_puts("fat: write op refused\n");
                     }
                 }
             } else {
-                serial_puts("fat: seed read FAILED (size=");
-                serial_puts_hex(size);
-                serial_puts(")\n");
+                console_puts("fat: seed read FAILED (size=");
+                console_puts_hex(size);
+                console_puts(")\n");
             }
         } else {
-            serial_puts("fat: mount FAILED\n");
+            console_puts("fat: mount FAILED\n");
         }
     }
 
     irq_init();
     kbd_init();                     /* M5.5: IRQ1 now load-bearing (READ) */
-    serial_puts("kbd: IRQ1 armed\n");
+    console_puts("kbd: IRQ1 armed\n");
 
     mouse_init();                   /* M5.8: PS/2 aux, IRQ12. Synchronous
                                        handshake with IRQ12 still masked;
                                        outcome is named at the gate below
                                        (no ack = stays asleep), not here. */
-    serial_puts("mouse: aux armed\n");
+    console_puts("mouse: aux armed\n");
 
     sched_init();
     pit_init();
     thread_spawn("A", worker, (void *)(long)'A');
     thread_spawn("B", worker, (void *)(long)'B');
-    serial_puts("sched: spawned A+B\n");
+    console_puts("sched: spawned A+B\n");
 
     __asm__ volatile("sti");
 
     while (worker_reports < 6 && pit_ticks() < 1500)
         __asm__ volatile("hlt");
 
-    serial_puts("sched: reports=");
+    console_puts("sched: reports=");
     putdec(worker_reports);
-    serial_puts(" switches=");
+    console_puts(" switches=");
     putdec(sched_switches());
-    serial_puts(" ticks=");
+    console_puts(" ticks=");
     putdec(pit_ticks());
-    serial_puts("\n");
+    console_puts("\n");
 
     /* M5.8 mouse gate: IRQ12 is live, so give the aux port a bounded
        window of motion, exiting early once packets arrive. Signed
@@ -499,11 +497,11 @@ void kernel_main(void)
         while (pit_ticks() - t0 < 500 && mouse_packets() < 3)
             __asm__ volatile("hlt");
 
-        serial_puts("mouse: ");
+        console_puts("mouse: ");
         if (!mouse_armed()) {
-            serial_puts("aux refused (no device)\n");
+            console_puts("aux refused (no device)\n");
         } else if (mouse_packets() == 0) {
-            serial_puts("idle - no motion (negative control ok)\n");
+            console_puts("idle - no motion (negative control ok)\n");
         } else {
             u64 dx = mouse_dx_total();
             u64 dy = mouse_dy_total();
@@ -513,30 +511,30 @@ void kernel_main(void)
             /* positive gate: at least 3 packets AND real motion in
                BOTH axes. Anything decoded-shapeless is named FAILED. */
             if (mouse_packets() >= 3 && sdx != 0 && sdy != 0) {
-                serial_puts("gate ok events=");
+                console_puts("gate ok events=");
                 putdec(mouse_packets());
-                serial_puts(" dx=");
-                serial_puts(sdx < 0 ? "-" : "+");
+                console_puts(" dx=");
+                console_puts(sdx < 0 ? "-" : "+");
                 putdec((u64)(sdx < 0 ? -sdx : sdx));
-                serial_puts(" dy=");
-                serial_puts(sdy < 0 ? "-" : "+");
+                console_puts(" dy=");
+                console_puts(sdy < 0 ? "-" : "+");
                 putdec((u64)(sdy < 0 ? -sdy : sdy));
-                serial_puts(" buttons=");
+                console_puts(" buttons=");
                 putdec((u64)mouse_buttons());
-                serial_puts("\n");
+                console_puts("\n");
             } else {
-                serial_puts("gate FAILED (packets=");
+                console_puts("gate FAILED (packets=");
                 putdec(mouse_packets());
-                serial_puts(" dx=");
+                console_puts(" dx=");
                 putdec(dx);
-                serial_puts(" dy=");
+                console_puts(" dy=");
                 putdec(dy);
-                serial_puts(")\n");
+                console_puts(")\n");
             }
             if (mouse_overflows()) {
-                serial_puts("mouse: overflow packets dropped: ");
+                console_puts("mouse: overflow packets dropped: ");
                 putdec(mouse_overflows());
-                serial_puts("\n");
+                console_puts("\n");
             }
         }
     }
@@ -547,30 +545,30 @@ void kernel_main(void)
        so the printed line IS the evidence for syscall nr 2. */
     {
         u64 pr = sys_v0(SYSCALL_PROBE, 77, 0, 0);
-        serial_puts(pr == 77 ? "syscall: probe ok ret=" : "syscall: probe FAILED ret=");
-        serial_puts_hex(pr);
-        serial_puts("\n");
+        console_puts(pr == 77 ? "syscall: probe ok ret=" : "syscall: probe FAILED ret=");
+        console_puts_hex(pr);
+        console_puts("\n");
 
         u64 pid = sys_v0(SYSCALL_GETPID, 0, 0, 0);
-        serial_puts("syscall: getpid=");
-        serial_puts_hex(pid);
-        serial_puts("\n");
+        console_puts("syscall: getpid=");
+        console_puts_hex(pid);
+        console_puts("\n");
         if (pid != 0)
-            serial_puts("syscall: getpid not thread 0 - check tids\n");
+            console_puts("syscall: getpid not thread 0 - check tids\n");
 
         static const char sysmsg[] = "syscall: ABI v0 console write\n";
         u64 want = sizeof sysmsg - 1;
         u64 got  = sys_v0(SYSCALL_WRITE, STDOUT_FILENO, (u64)sysmsg, want);
-        serial_puts(got == want ? "syscall: write ok bytes=" : "syscall: write FAILED bytes=");
-        serial_puts_hex(got);
-        serial_puts("\n");
+        console_puts(got == want ? "syscall: write ok bytes=" : "syscall: write FAILED bytes=");
+        console_puts_hex(got);
+        console_puts("\n");
 
         u64 badfd = sys_v0(SYSCALL_WRITE, 9, (u64)sysmsg, 4);
-        serial_puts(badfd == (u64)SYS_EINVAL ? "syscall: bad fd refused\n"
+        console_puts(badfd == (u64)SYS_EINVAL ? "syscall: bad fd refused\n"
                                              : "syscall: bad fd NOT refused\n");
 
         u64 unk = sys_v0(77, 0, 0, 0);
-        serial_puts(unk == (u64)SYS_EINVAL ? "syscall: unknown nr refused\n"
+        console_puts(unk == (u64)SYS_EINVAL ? "syscall: unknown nr refused\n"
                                            : "syscall: unknown nr NOT refused\n");
     }
 
@@ -584,36 +582,35 @@ void kernel_main(void)
     static u8 shell_img[16384];
     {
         long got = fat_read_file(BENCH_SHELL_FILE, shell_img, sizeof shell_img);
-        serial_puts("elf: SHELL.ELF read bytes=");
-        serial_puts_hex((u64)got);
-        serial_puts("\n");
+        console_puts("elf: SHELL.ELF read bytes=");
+        console_puts_hex((u64)got);
+        console_puts("\n");
         int stid = -1;
         if (got > 64)
             stid = thread_spawn_user("shell", shell_img, (u64)got);
         if (stid > 0) {
-            serial_puts("gate5: shell live tid=");
-            serial_puts_hex((u64)stid);
-            serial_puts("\n");
+            console_puts("gate5: shell live tid=");
+            console_puts_hex((u64)stid);
+            console_puts("\n");
             int code = sched_join(stid);        /* blocks in WQ_CHILD */
-            serial_puts("gate5: shell exited code=");
+            console_puts("gate5: shell exited code=");
             putdec((u64)(code < 0 ? 0 : code));
-            serial_puts("\n");
-            serial_puts("gate5: user exits total=");
+            console_puts("\n");
+            console_puts("gate5: user exits total=");
             putdec(sysc_user_exits());
-            serial_puts("\n");
-            serial_puts("kbd: events=");
+            console_puts("\n");
+            console_puts("kbd: events=");
             putdec(kbd_events());
-            serial_puts("\n");
+            console_puts("\n");
         } else {
-            serial_puts("gate5: shell load refused\n");
+            console_puts("gate5: shell load refused\n");
             for (;;)                            /* evidence stays flat */
                 __asm__ volatile("hlt");
         }
     }
 
 #if TRAP_SELFTEST
-    vga_puts("selftest: int3\n");
-    serial_puts("selftest: int3\n");
+    console_puts("selftest: int3\n");
     __asm__ volatile("int3");
 #endif
 

@@ -41,11 +41,6 @@ void vga_clear(void)
     row = col = 0;
 }
 
-void vga_set_attr(u8 new_attr)
-{
-    attr_current = new_attr;
-}
-
 void vga_putc(char c)
 {
     if (c == '\n') {
@@ -55,17 +50,4 @@ void vga_putc(char c)
     *cell((int)col, (int)row) = (u16)c | (u16)attr_current << 8;
     if (++col >= VGA_COLS)
         newline();
-}
-
-void vga_puts(const char *s)
-{
-    while (*s)
-        vga_putc(*s++);
-}
-
-void vga_puts_hex(u64 value)
-{
-    static const char digits[] = "0123456789abcdef";
-    for (int shift = 60; shift >= 0; shift -= 4)
-        vga_putc(digits[(value >> shift) & 0xF]);
 }

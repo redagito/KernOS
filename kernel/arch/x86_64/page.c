@@ -3,6 +3,7 @@
 #include "pmm.h"
 #include "trap.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * The #PF handler with a real recover path: an anonymous page materializes
@@ -135,7 +136,7 @@ void pf_init(void)
 {
     stat_faults = stat_pd = stat_pt = stat_data = 0;
     exc_set_handler(14, pf_handler);
-    serial_puts("pf: demand pager armed\n");
+    console_puts("pf: demand pager armed\n");
 }
 
 void pf_stats(u64 *faults, u64 *pd_pages, u64 *pt_pages, u64 *data_pages)

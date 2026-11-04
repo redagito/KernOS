@@ -2,6 +2,7 @@
 #include "pmm.h"
 #include "mem.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * LIFO frame stack over the E820 type-1 runs. Frames are pushed
@@ -54,9 +55,9 @@ void pmm_init(void)
         if (top == PMM_MAX_FRAMES) break;
     }
 
-    serial_puts("pmm: frames=");
-    serial_puts_hex(top);
-    serial_puts("\n");
+    console_puts("pmm: frames=");
+    console_puts_hex(top);
+    console_puts("\n");
 }
 
 u64 pmm_alloc(void)
@@ -71,17 +72,17 @@ u64 pmm_alloc(void)
 void pmm_free(u64 pa)
 {
     if ((pa & (FRAME_SIZE - 1)) != 0 || pa < kernel_limit) {
-        serial_puts("pmm: refuse bad free ");
-        serial_puts_hex(pa);
-        serial_puts("\n");
+        console_puts("pmm: refuse bad free ");
+        console_puts_hex(pa);
+        console_puts("\n");
         return;
     }
     if (top == PMM_MAX_FRAMES) return;           /* cannot happen: balanced */
     u64 idx = (pa - kernel_limit) / FRAME_SIZE;
     if (in_stack[idx / 32] & (1u << (idx % 32))) {
-        serial_puts("pmm: double free ");
-        serial_puts_hex(pa);
-        serial_puts("\n");
+        console_puts("pmm: double free ");
+        console_puts_hex(pa);
+        console_puts("\n");
         return;
     }
     in_stack[idx / 32] |= 1u << (idx % 32);

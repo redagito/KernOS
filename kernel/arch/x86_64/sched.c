@@ -3,6 +3,7 @@
 #include "proc.h"
 #include "idt.h"
 #include "serial.h"
+#include "console.h"
 #include "pmm.h"
 
 /*
@@ -56,7 +57,7 @@ static void load_cr3(u64 pa)
     cr3_loaded = pa;
 }
 
-void swtch(u64 *save_slot, u64 *new_sp);        /* swtch.s  */
+void swtch(u64 **save_slot, u64 *new_sp);       /* swtch.s */
 void thread_entry(void);                        /* swtch.s  */
 
 void sched_init(void)
@@ -103,7 +104,7 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
 {
     int i = find_free_slot();
     if (i < 0) {
-        serial_puts("sched: spawn failed, no free slot\n");
+        console_puts("sched: spawn failed, no free slot\n");
         return -1;
     }
     struct thread *t = &threads[i];
@@ -115,11 +116,11 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
     fill_ctx(t, (u64)entry, (u64)arg);
     t->state = T_RUNNABLE;          /* LAST: tick must never see a half-built slot */
 
-    serial_puts("spawn ");
-    serial_puts(name);
-    serial_puts(" ctx=");
-    serial_puts_hex((u64)t->ctx);
-    serial_puts("\n");
+    console_puts("spawn ");
+    console_puts(name);
+    console_puts(" ctx=");
+    console_puts_hex((u64)t->ctx);
+    console_puts("\n");
     return i;
 }
 
@@ -127,7 +128,7 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
 {
     int i = find_free_slot();
     if (i < 0) {
-        serial_puts("sched: spawn-user failed, no free slot\n");
+        console_puts("sched: spawn-user failed, no free slot\n");
         return -1;
     }
 
@@ -147,9 +148,9 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
     fill_ctx(t, (u64)proc_user_entry, entry);
     t->state = T_RUNNABLE;           /* LAST: see above, no half-built slot */
 
-    serial_puts("spawn-user ");
-    serial_puts(name);
-    serial_puts("\n");
+    console_puts("spawn-user ");
+    console_puts(name);
+    console_puts("\n");
     return i;
 }
 
@@ -172,15 +173,15 @@ static void switch_into(struct thread *from, struct thread *to)
     }
 
     if (switches <= 8) {           /* bring-up trace */
-        serial_puts("sw#");
-        serial_puts_hex(switches);
-        serial_puts(": ");
-        serial_puts(from->name);
-        serial_puts(" -> ");
-        serial_puts(to->name);
-        serial_puts(" cr3=");
-        serial_puts_hex(to->cr3 ? to->cr3 : boot_cr3);
-        serial_puts("\n");
+        console_puts("sw#");
+        console_puts_hex(switches);
+        console_puts(": ");
+        console_puts(from->name);
+        console_puts(" -> ");
+        console_puts(to->name);
+        console_puts(" cr3=");
+        console_puts_hex(to->cr3 ? to->cr3 : boot_cr3);
+        console_puts("\n");
     }
 }
 
@@ -242,11 +243,11 @@ void sched_exit_now(u64 exit_code)
 
     cur = to;
     switches++;
-    serial_puts("sched: tid=");
-    serial_puts_hex((u64)from->id);
-    serial_puts(" zombie -> ");
-    serial_puts(to->name);
-    serial_puts("\n");
+    console_puts("sched: tid=");
+    console_puts_hex((u64)from->id);
+    console_puts(" zombie -> ");
+    console_puts(to->name);
+    console_puts("\n");
 
     load_cr3(boot_cr3);                       /* safe house */
     proc_space_destroy(from->frames, from->nframes);
@@ -259,7 +260,9 @@ void sched_exit_now(u64 exit_code)
         load_cr3(to->cr3);
     }
 
-    static u64 zombie_sp;                     /* parked forever       */
+    static u64 *zombie_sp;                    /* parked forever: the
+                                                 save slot type matches
+                                                 every thread's ctx slot */
     swtch(&zombie_sp, to->ctx);
     for (;;) { }                              /* not reached          */
 }

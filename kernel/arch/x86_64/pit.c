@@ -1,6 +1,7 @@
 #include <kernel/types.h>
 #include "irq.h"
 #include "serial.h"
+#include "console.h"
 #include "pit.h"
 #include "sched.h"
 
@@ -44,7 +45,7 @@ void pit_init(void)
     irq_set_handler(0, pit_handler);
     irq_enable(0);
 
-    serial_puts("tick 100hz\n");
+    console_puts("tick 100hz\n");
 }
 
 u64 pit_ticks(void)

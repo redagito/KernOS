@@ -5,6 +5,7 @@
 #include "kbd.h"
 #include "fat32.h"
 #include "serial.h"
+#include "console.h"
 
 /*
  * The 0x80 syscall gate (M5.1+, docs/syscall-abi.md).
@@ -132,7 +133,7 @@ void syscall_dispatch(struct trapframe *tf)
             break;
         }
         for (u64 i = 0; i < n; ++i)
-            serial_putc((char)buf[i]);
+            console_putc((char)buf[i]);
         r = n;
         break;
     }
@@ -246,11 +247,11 @@ void syscall_dispatch(struct trapframe *tf)
         /* First exit path in the OS: code is remembered (exit tables
            + the serial line), the thread turns zombie and is switched
            away from forever. */
-        serial_puts("proc: exit tid=");
-        serial_puts_hex(sched_tid());
-        serial_puts(" code=");
-        serial_puts_hex(tf->rdi);
-        serial_puts("\n");
+        console_puts("proc: exit tid=");
+        console_puts_hex(sched_tid());
+        console_puts(" code=");
+        console_puts_hex(tf->rdi);
+        console_puts("\n");
         user_exits++;
         sched_exit_now(tf->rdi);           /* never returns            */
         /* not reached */

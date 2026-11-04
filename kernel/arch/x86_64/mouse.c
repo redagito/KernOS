@@ -1,4 +1,5 @@
 #include <kernel/types.h>
+#include <kernel/input.h>
 #include "mouse.h"
 #include "irq.h"
 
@@ -75,10 +76,17 @@ static void mouse_handler(struct trapframe *tf)
             i16 dy = (i16)(u16)pack[2];
             if (pack[0] & 0x10) dx = (i16)(dx - 256);
             if (pack[0] & 0x20) dy = (i16)(dy - 256);
-            buttons = pack[0] & 0x07;
+            u8 now_buttons = (u8)(pack[0] & 0x07);
+            u8 prev = buttons;
+            buttons = now_buttons;
             dx_total = dx_total + (u64)(i64)dx;
             dy_total = dy_total + (u64)(i64)dy;
             packets++;
+            /* M6.1: the event core sees everything the totals see -
+               two REL events per packet, BTN events on transitions. */
+            input_push_rel(dx, dy);
+            if (now_buttons != prev)
+                input_push_buttons(prev, now_buttons);
         }
     }
 }
@@ -100,15 +108,21 @@ void mouse_init(void)
 
     out8(PS2_CMD, CMD_ENABLE_AUX);
 
-    /* controller config: IRQ12 on, aux clock running, no translation
-       (translate-to-intelli-mouse would rewrite the packets). */
+    /* controller config: IRQ12 on, aux clock running. The
+       TRANSLATION bit (6) belongs to the KEYBOARD port only - mouse
+       bytes on the aux port are never translated, QEMU and real
+       chips agree - so we leave it exactly as the firmware set it.
+       (M5.8 cleared it and silently broke the keyboard: with
+       translation off the native scan set leaks through - QEMU's
+       keyboard defaults to set 3, real boards to set 2 - and kbd.c,
+       a set-1 reader, decoded gibberish. The M6.1 typed gate caught
+       it; clearing stays off the books.) */
     out8(PS2_CMD, CMD_CONFIG_READ);
     for (i = 0; i < 65535 && !(in8(PS2_STAT) & STAT_OBF); ++i) ;
     if (i == 65535) return;
     cfg = in8(PS2_DATA);
     cfg |= 0x02;                 /* enable int 12           */
     cfg &= (u8)~0x20;            /* aux clock not inhibited */
-    cfg &= (u8)~0x40;            /* not in translation mode */
     out8(PS2_CMD, CMD_CONFIG_WRITE);
     out8(PS2_DATA, cfg);
 

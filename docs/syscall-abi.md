@@ -50,6 +50,7 @@ v0 rules beyond the table:
 | 4 | `read`  | fd(0 = COM1 console in), buf, n | bytes read (can block), or -1 |
 | 5 | `spawn` | name(8.1; ".ELF" assumed if absent) | new pid, or -1        |
 | 6 | `wait`  | —                           | a child's exit code, or -1    |
+| 7 | `input` | buf, max (≤ 64 events/call) | events drained now, or -1     |
 
 v0 specifics worth stating:
 
@@ -131,3 +132,30 @@ that invariant 1 needed no grafting:
   (`tools/ksh-driver.ps1`); negative control = corrupted SHELL.ELF
   magic → `proc: elf refused - bad magic` + `gate5: shell load
   refused` + no prompt.
+
+M6.1 notes — the per-event input channel:
+
+- `input` (7): drains the kernel's ONE event ring (both devices feed
+  it: translated keyboard keystrokes AND PS/2 mouse packet deltas and
+  button transitions). NONBLOCKING by contract: `0` = nothing right
+  now (the honest poll); batch cap 64 events/call, same bound shape as
+  read's 64 bytes. A BLOCKING input variant, if the M6 GUI needs one,
+  arrives as number 8+ per invariant 2 — never as flags on this one.
+- The event record is the normative ABI shape too: fixed 8 bytes
+  {type, code, value, seq}, types frozen as 1=KEY (code=ASCII post-
+  translation, value=1), 2=RELX / 3=RELY (value=one packet's signed
+  delta; one PS/2 packet = two ordered events), 4=BTN (code=button
+  bit 0..2, value=0|1, TRANSITIONS ONLY - held buttons do not spam).
+  `seq` is the kernel-owned monotonic delivery number: a full ring's
+  drops are counted (`input: ... dropped=`), never smuggled into seq.
+- Supplier code is portable (`kernel/input.c`, host-tested by
+  tests/test_input.c to the drop boundary, including seq monotonicity
+  across a flood); producer code lives in the kbd/mouse IRQ handlers;
+  the consumer is this gate (all three hands run IF-off; single core
+  serializes by construction, the kbd-ring discipline since M5.5).
+- Evidence: u1's observatory phase (typed `run u1`) classifies the
+  drained events — positive = `input: gate ok rx=.. ry=.. keys=..`
+  with QMP-injected rel motion staged in the ring BEFORE spawn;
+  negative = `input: idle - no rel motion after N polls (negative
+  control ok)`; both exit 0 and the shell round-trip proof (M5.5
+  gate) continues on the same `run u1` typing, unchanged.

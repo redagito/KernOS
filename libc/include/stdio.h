@@ -13,7 +13,9 @@
  */
 
 #include <stddef.h>
+#include <stdarg.h>     /* va_list: vsnprintf takes one, like everyone's */
 
 int printf(const char *fmt, ...);
 int putchar(int c);        /* v0 has no stdin; stdout only */
 int puts(const char *s);   /* appends a newline, like everyone's */
+int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap);

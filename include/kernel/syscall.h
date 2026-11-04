@@ -22,6 +22,11 @@
 #define SYSCALL_SPAWN   5    /* spawn(name) -> new pid (our child); or -1   */
 #define SYSCALL_WAIT    6    /* wait() -> child exit code; blocks; -1 none  */
 
+/* M6.1: the per-event input channel (nonblocking drain; a BLOCKING
+   variant, if the GUI ever needs one, arrives as number 8+ per the
+   append-only rule - sync stays the v0 model). */
+#define SYSCALL_INPUT   7    /* input(buf, max) -> drained events (0 = none) */
+
 #define STDIN_FILENO  0      /* the keyboard ring (M5.5)         */
 #define STDOUT_FILENO 1      /* v0: COM1 console                */
 

@@ -1,4 +1,5 @@
 #include <kernel/types.h>
+#include <kernel/input.h>
 #include "irq.h"
 #include "kbd.h"
 #include "sched.h"                     /* the wake hook (SCHED_WQ_KBD) */
@@ -8,9 +9,10 @@
  * reports function bytes 0x00..0xFF in the sam shape as the classic
  * keyboard docs). Port-level truth: status reg 0x64 bit 0 says the data
  * reg 0x60 has a byte; the controller forwards both keyboard and mouse
- * packets there; we are keyboard-only until M6.
- *
- * Ring buffer so the IRQ handler never blocks and the consumer polls.
+ * packets there; M5.8 added the aux guard, M6.1 the event push: every
+ * translated keypress feeds BOTH channels - the ASCII ring fd 0 reads
+ * (the text channel) and the event core (M6.1) - like the input core
+ * handing vt and evdev the same keystroke.
  */
 
 #define KBD_DATA   0x60
@@ -63,11 +65,14 @@ void kbd_init(void)
 static void push(char c)
 {
     u8 next = (u8)((head + 1) & RING_MASK);
-    if (next == tail) return;          /* full: drop, IRQ keeps flowing */
+    if (next == tail) return;         /* full: drop, IRQ keeps flowing */
     u8 was_empty = (head == tail);
     ring[head] = (u8)c;
     head = next;
     events++;
+    input_push_key(c);                /* the event core sees the same
+                                         keystroke (M6.1) - full ring
+                                         there is ITS counted drop */
     /* First byte of a fresh run: any thread sleeping in the gate's
        READ is hereby owed a look at the ring (M5.5). Waking is a
        state flip only - no switching, no flags games; the woken

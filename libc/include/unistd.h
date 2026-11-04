@@ -19,5 +19,10 @@ long    getpid(void);       /* pid == tid (M5 ABI, split deferred)  */
 long    spawn(const char *name); /* new child pid, or -1 on refusal */
 long    wait(void);             /* child exit code; -1 if no children  */
 
+/* M6.1: the event channel - drain up to nn 8-byte input_event records
+   (include/kernel/input.h); returns events moved (0 = none right now,
+   nonblocking by contract). */
+long    input(void *buf, long max);
+
 #define STDIN_FILENO   0     /* the keyboard ring (M5.5)             */
 #define STDOUT_FILENO  1     /* the console (COM1 line printer)      */

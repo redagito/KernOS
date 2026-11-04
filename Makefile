@@ -47,6 +47,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/irq.o \
 	$(OBJ)/pit.o \
 	$(OBJ)/kbd.o \
+	$(OBJ)/input_core.o \
 	$(OBJ)/console.o \
 	$(OBJ)/mouse.o \
 	$(OBJ)/sched.o \
@@ -80,9 +81,14 @@ DEFAULT_GOAL := all
 
 all: image
 
-image: $(BUILD)/kernos.img
+# image/run own the FAT fixture on purpose: benchdisk's fixture is
+# phony and consumer-mutated, and a bare `make image` once booted a
+# STALE pre-M6.1 userland because nothing rebuilt it (the M6.1 gate
+# caught its own green print lying). Replanting is cheap - mkfat32
+# is deterministic and self-checks its layout.
+image: $(BUILD)/kernos.img $(BUILD)/ahcidisk.img
 
-run: $(BUILD)/kernos.img
+run: $(BUILD)/kernos.img $(BUILD)/ahcidisk.img
 	qemu-system-x86_64 -drive format=raw,file=$(BUILD)/kernos.img,if=ide \
 		-serial stdio -display none -monitor none
 
@@ -154,6 +160,7 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
 	$(BUILD)/test_format
 	$(BUILD)/test_font $(BUILD)/font.psf2
+	$(BUILD)/test_input
 
 # vsnprintf is libc's one portable-holy module: it answers for itself
 # on the host, so the boot gate never has to prove formatting.
@@ -167,6 +174,13 @@ $(BUILD)/test_format: tests/test_format.c libc/src/format.c
 $(BUILD)/test_font: tests/test_font.c $(BUILD)/font.psf2
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -o $@ tests/test_font.c
+
+# The input event core answers for itself: the same kernel/input.c the
+# IRQ handlers and gate nr 7 run, driven to the drop boundary on host.
+$(BUILD)/test_input: tests/test_input.c kernel/input.c \
+		include/kernel/input.h include/kernel/types.h
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_input.c kernel/input.c
 
 # -----
 # Compilation
@@ -204,6 +218,12 @@ $(OBJ)/irq.o: kernel/arch/x86_64/irq.c
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/kbd.o: kernel/arch/x86_64/kbd.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+# The input event core is portable C (like fat32/elf64): the IRQ
+# handlers and syscall nr 7 run the same text the host tests compile.
+$(OBJ)/input_core.o: kernel/input.c include/kernel/input.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 
@@ -308,6 +328,7 @@ $(BUILD)/libc.a: $(LIBC_OBJ)
 	ar rcs $@ $^
 
 $(OBJ)/user1.o: kernel/user/u1.c include/kernel/syscall.h \
+		include/kernel/input.h \
 		libc/include/stdio.h libc/include/unistd.h
 	@mkdir -p $(@D)
 	$(CC) $(UFLAGS) -c -o $@ $<

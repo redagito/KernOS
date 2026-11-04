@@ -1,5 +1,6 @@
 #include <kernel/types.h>
 #include <kernel/syscall.h>
+#include <kernel/input.h>
 #include "syscall.h"
 #include "sched.h"
 #include "kbd.h"
@@ -221,6 +222,29 @@ void syscall_dispatch(struct trapframe *tf)
         }
         int tid = thread_spawn_user(spawn_prog_name(name), spawn_img, (u64)got);
         r = tid > 0 ? (u64)tid : (u64)SYS_EINVAL;
+        break;
+    }
+
+    case SYSCALL_INPUT: {
+        /* M6.1: drain the event ring, NONBLOCKING. arg1 = user buffer
+           of struct input_event (8 bytes each, include/kernel/input.h),
+           arg2 = max events (one batch <= 64, like read's byte bound).
+           0 events = live ring is empty = honest immediate 0; blocking
+           waits for events arrive later as NEW numbers (append-only),
+           never as flags on this one. */
+        struct input_event *buf = (struct input_event *)tf->rdi;
+        u64 max = tf->rsi;
+
+        if (buf == 0 || max == 0 || max > 64) {
+            r = (u64)SYS_EINVAL;
+            break;
+        }
+        if ((tf->cs & 3) == 3 &&
+            !user_ptr_ok(tf->rdi, max * sizeof(struct input_event))) {
+            r = (u64)SYS_EINVAL;          /* buf must be P|U|W          */
+            break;
+        }
+        r = (u64)input_pull(buf, (int)max);   /* IF off: SPSC clean     */
         break;
     }
 

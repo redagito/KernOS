@@ -55,3 +55,9 @@ long wait(void)
 {
     return gate(SYSCALL_WAIT, 0, 0, 0);
 }
+
+/* M6.1: the event channel (docs/syscall-abi.md nr 7). */
+long input(void *buf, long max)
+{
+    return gate(SYSCALL_INPUT, (long)buf, max, 0);
+}

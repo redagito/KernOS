@@ -230,6 +230,51 @@ as listed below.
   is u64** not u64*, idt.c's stub table is u64[] not void*[], and
   mem.c's 0x600 E820 read needed the fixed-address read discipline
   (register barrier, same family as fb.c's rd_le32).
+- **M6.1 — the per-event input channel (locked 2026-11-04)**
+  kernel/input.c|h is the event core: ONE ring both input devices
+  feed, shaped for userland like fat32/elf64 (the portable center of
+  gravity — host tests run the same text the IRQ handlers and the
+  gate run). Records are fixed 8-byte {type, code, value, seq} with
+  types frozen (1=KEY post-translation ASCII, 2=RELX / 3=RELY one
+  signed delta each — one PS/2 packet lands as two ordered events,
+  4=BTN on transitions only); seq is a kernel-owned monotonic
+  delivery number and a full ring's drops are COUNTED
+  (input_dropped), never smuggled into seq. Serialisation is the
+  kbd-ring discipline since M5.5: producers (IRQ1/IRQ12) and the
+  consumer (syscall gate) all run IF-off on one core. Syscall nr 7
+  `input(buf, max)` is NONBLOCKING by contract (0 = nothing right
+  now, batch cap 64 like read's 64 bytes); a blocking variant, if
+  the GUI ever needs one, arrives as number 8+ per the append-only
+  ABI rule — the docs/syscall-abi.md table grows the row and the
+  record shape is normative there. Producers hook into the kbd
+  (every translated keystroke feeds BOTH the fd-0 text ring and the
+  event core) and the mouse (per-packet REL pair, BTN transitions
+  with prev-state tracking); libc grows input(); u1 grows an
+  observatory phase (the typed gate): positive = 20 QMP moves
+  (15,-7) staged into the ring BEFORE the spawn, drained on the
+  FIRST poll -> "input: gate ok rx=60 ry=28 keys=0 btn=0 poll=1"
+  (one 8-event batch = 4 packets; the 12 typed keys arrive after
+  and are counted, not gated); negative = no injection -> "input:
+  idle - no rel motion after 300000 polls (negative control ok)"
+  (~1 s of burn, CAP stays) — exit 0 both ways, and the M5.5 shell
+  round-trip rides unchanged on the same `run u1` typing. Boot-end
+  counters: "input: events=52 dropped=0" (40 rel + 12 keys) and
+  "input: events=12 dropped=0" (typed keys only) — drops named at
+  zero, as they should be. Host suite: 107 checks / 0 failures
+  (input suite 22: exact drain order, batch cap, ring wraparound,
+  drop accounting at the 2^7-1 boundary, seq monotonic across a
+  flood, the frozen record shape). Two real catches in this
+  milestone: (1) the FIRST gate that types since M5.8 caught a
+  latent M5.8 regression — mouse init cleared the i8042 config bit
+  6, but translation applies to the KEYBOARD port only, so QEMU's
+  native scan set 3 leaked through (`sendkey q` echoed `yy`) and
+  typing was garbage; mouse init now leaves bit 6 exactly as the
+  firmware set it, rationale in the comment. (2) The gate
+  discipline itself caught a build-graph lie: `make image` never
+  built the FAT fixture (it is the separate phony benchdisk), so
+  the SAME artifacts kept booting a pre-M6.1 userland whose exit 0
+  faked a green run — `image` now depends on the fixture, and
+  every build replants it fresh from the current u1/shell ELFs.
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

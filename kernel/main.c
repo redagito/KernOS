@@ -21,6 +21,7 @@
 #include "arch/x86_64/ahci.h"
 #include "fat32.h"
 #include <kernel/bench.h>
+#include <kernel/input.h>
 #include <kernel/block.h>
 #include "arch/x86_64/syscall.h"
 #include "arch/x86_64/sched.h"
@@ -601,6 +602,11 @@ void kernel_main(void)
             console_puts("\n");
             console_puts("kbd: events=");
             putdec(kbd_events());
+            console_puts("\n");
+            console_puts("input: events=");
+            putdec(input_delivered());
+            console_puts(" dropped=");
+            putdec(input_dropped());
             console_puts("\n");
         } else {
             console_puts("gate5: shell load refused\n");

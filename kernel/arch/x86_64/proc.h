@@ -21,7 +21,10 @@
  *    in the shared region would fault on some CR3s. No fork yet; no
  *    user demand usage ever; revisit only when forking exists.
  *  - user->kernel switches are only made through the scheduler paths
- *    in sched.c; nothing else may load a process CR3.
+ *    in sched.c; nothing else may load a process CR3. The scheduler
+ *    record rules that own those paths are the RECORD DOCTRINE,
+ *    normative in sched.h since M5.13 - no record field is added, and
+ *    no path may write one, outside its writer/owner rules.
  *  - no W^X split yet (no NX bits, no fault-on-write tracks). The
  *    ELF loader maps everything P|U|W; KCC/M6 work revisits.
  */

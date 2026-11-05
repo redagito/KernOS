@@ -33,3 +33,15 @@ u64 fb_phys(void);         /* physical base of the LFB */
    via the readback gate). The getter returns 0 out of bounds. */
 void fb_pixel_set(u32 x, u32 y, u32 rgb);
 u32  fb_pixel_get(u32 x, u32 y);
+
+/* M6.1: the rect substrate the compositor (and the console scroller)
+   builds on. Both clip hard - a partially off-screen op stays
+   partially on, an overflowed corner is not a wraparound write - and
+   the fill returns its painted-pixel count so the boot gate can
+   verify the exact area, not an impression. fb_region_copy moves
+   w*h pixels from (sx,sy) to (dx,dy): vertical AND horizontal
+   self-overlap are safe (walk direction adapts), the copy readback
+   is the scroll/bounce primitive. Zero span or fully off-screen is
+   a silent no-op, like every other out-of-bounds here. */
+u64  fb_rect_fill(u32 x, u32 y, u32 w, u32 h, u32 rgb);
+void fb_region_copy(u32 sx, u32 sy, u32 w, u32 h, u32 dx, u32 dy);

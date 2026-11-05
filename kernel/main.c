@@ -290,6 +290,44 @@ void kernel_main(void)
             } else {
                 console_puts("fb: pixel echo FAILED\n");
             }
+
+            /* M6.1 rect-substrate echo: the fill paints EXACTLY its
+               area (ring guards around it stay their own color), the
+               clipped corner fill paints exactly the 8x8 that is
+               on-screen (fill returns counts, the claims are in the
+               check), and region copy moves stamped words
+               bit-for-bit. */
+            {
+                u64 n = fb_rect_fill(100, 100, 64, 32, 0x3366CC);
+                fb_pixel_set(99,  99,  0x444444);
+                fb_pixel_set(164, 99,  0x444444);
+                fb_pixel_set(99,  132, 0x444444);
+                fb_pixel_set(164, 132, 0x444444);
+                u64 c = fb_rect_fill(w - 8, h - 8, 32, 32, 0x0A0B0C);
+                fb_pixel_set(200, 300, 0x112233);
+                fb_pixel_set(201, 300, 0x445566);
+                fb_pixel_set(202, 300, 0x778899);
+                fb_region_copy(200, 300, 3, 1, 200, 320);
+                fb_region_copy(200, 300, 3, 1, 150, 300); /* sideways copy */
+                if (n == 64 * 32 && c == 8 * 8 &&
+                    fb_pixel_get(132, 116) == 0x3366CC &&
+                    fb_pixel_get(99,  99)  == 0x444444 &&
+                    fb_pixel_get(164, 99)  == 0x444444 &&
+                    fb_pixel_get(99,  132) == 0x444444 &&
+                    fb_pixel_get(164, 132) == 0x444444 &&
+                    fb_pixel_get(w - 1, h - 1) == 0x0A0B0C &&
+                    fb_pixel_get(200, 320) == 0x112233 &&
+                    fb_pixel_get(201, 320) == 0x445566 &&
+                    fb_pixel_get(202, 320) == 0x778899 &&
+                    fb_pixel_get(150, 300) == 0x112233 &&
+                    fb_pixel_get(151, 300) == 0x445566 &&
+                    fb_pixel_get(152, 300) == 0x778899 &&
+                    fb_pixel_get(200, 300) == 0x112233) {
+                    console_puts("fb: rect echo ok\n");
+                } else {
+                    console_puts("fb: rect echo FAILED\n");
+                }
+            }
         }
     }
 

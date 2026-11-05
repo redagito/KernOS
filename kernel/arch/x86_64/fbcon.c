@@ -90,27 +90,20 @@ static void draw_cell(u32 cx, u32 cy, unsigned char c)
     }
 }
 
-/* Hard scroll: everything moves up one glyph row, the last row blanks. */
+/* Hard scroll: everything moves up one glyph row, the last row blanks.
+   M6.1: the moves are region copies now - the substrate's row walk,
+   not height*width round-trips through the pixel pair. The scroll-echo
+   gate in main.c still proves the copy bit-for-byte via stamps. */
 static void scroll(void)
 {
-    u32 y, x;
-
-    for (y = gh; y < fb_height(); ++y)
-        for (x = 0; x < fb_width(); ++x)
-            fb_pixel_set(x, y - gh, fb_pixel_get(x, y));
-    for (y = fb_height() - gh; y < fb_height(); ++y)
-        for (x = 0; x < fb_width(); ++x)
-            fb_pixel_set(x, y, 0);
+    fb_region_copy(0, gh, fb_width(), fb_height() - gh, 0, 0);
+    fb_rect_fill(0, fb_height() - gh, fb_width(), gh, 0);
     ++scrolls;
 }
 
 void fbcon_clear(void)
 {
-    u32 y, x;
-
-    for (y = 0; y < fb_height(); ++y)
-        for (x = 0; x < fb_width(); ++x)
-            fb_pixel_set(x, y, 0);
+    fb_rect_fill(0, 0, fb_width(), fb_height(), 0);
     col = 0;
     row = 0;
 }

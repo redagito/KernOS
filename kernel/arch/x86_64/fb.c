@@ -101,3 +101,74 @@ u32 fb_pixel_get(u32 x, u32 y)
     volatile u32 *p = fb_px(x, y);
     return p ? *p : 0;
 }
+
+/* M6.1 rect substrate. Clip math notes: an exclusive end past u32
+   arithmetic's wrap is caught by (w + x < w) - true exactly when x+w
+   wrapped - and clamps to the screen edge, so a rect spanning the
+   far border paints the rest of the screen instead of vanishing. */
+u64 fb_rect_fill(u32 x, u32 y, u32 w, u32 h, u32 rgb)
+{
+    u32 x_end, y_end, xx, yy;
+    u64 painted = 0;
+
+    if (!mode.width || !mapped_va || w == 0 || h == 0) return 0;
+
+    x_end = (w + x < w) ? mode.width : w + x;
+    if (x_end > mode.width) x_end = mode.width;
+    y_end = (h + y < h) ? mode.height : h + y;
+    if (y_end > mode.height) y_end = mode.height;
+
+    for (yy = y; yy < y_end; ++yy) {
+        volatile u32 *p = (volatile u32 *)
+            (mapped_va + (u64)yy * mode.pitch + (u64)x * 4);
+        for (xx = x; xx < x_end; ++xx)
+            *p++ = rgb;
+        painted += x_end - x;
+    }
+    return painted;
+}
+
+void fb_region_copy(u32 sx, u32 sy, u32 w, u32 h, u32 dx, u32 dy)
+{
+    u32 s_xe, d_xe, s_ye, d_ye, span_x, span_y, dsp, n, c;
+    int ydn, xdn;
+
+    if (!mode.width || !mapped_va || w == 0 || h == 0) return;
+
+    /* shared clip: the copy is only as wide as BOTH the source and
+       the dest survive inside the screen; same vertically. */
+    s_xe = (w + sx < w) ? mode.width : w + sx;
+    if (s_xe > mode.width) s_xe = mode.width;
+    d_xe = (w + dx < w) ? mode.width : w + dx;
+    if (d_xe > mode.width) d_xe = mode.width;
+    span_x = sx < s_xe ? s_xe - sx : 0;
+    dsp    = dx < d_xe ? d_xe - dx : 0;
+    if (dsp < span_x)  span_x = dsp;
+    s_ye = (h + sy < h) ? mode.height : h + sy;
+    if (s_ye > mode.height) s_ye = mode.height;
+    d_ye = (h + dy < h) ? mode.height : h + dy;
+    if (d_ye > mode.height) d_ye = mode.height;
+    span_y = sy < s_ye ? s_ye - sy : 0;
+    dsp    = dy < d_ye ? d_ye - dy : 0;
+    if (dsp < span_y)  span_y = dsp;
+    if (span_x == 0 || span_y == 0) return;
+
+    /* Overlap-safe walk: writing screen row dy+n can only destroy a
+       source row read LATER when dy - sy > 0 - so when the dest sits
+       at or above the source, copy top rows first (else bottom
+       first). Same argument column-wise. */
+    ydn = (dy <= sy);
+    xdn = (dx <= sx);
+    for (n = 0; n < span_y; ++n) {
+        u32 syr = ydn ? sy + n : sy + span_y - 1 - n;
+        u32 dyr = ydn ? dy + n : dy + span_y - 1 - n;
+        volatile u32 *sp = (volatile u32 *)
+            (mapped_va + (u64)syr * mode.pitch + (u64)sx * 4);
+        volatile u32 *dp = (volatile u32 *)
+            (mapped_va + (u64)dyr * mode.pitch + (u64)dx * 4);
+        if (xdn)
+            for (c = 0; c < span_x; ++c) dp[c] = sp[c];
+        else
+            for (c = span_x; c-- > 0; )  dp[c] = sp[c];
+    }
+}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <kernel/types.h>
+#include <kernel/input.h>
 
 /*
  * cursor (M6.3): the pointer sprite over the M5.6 LFB - the GUI's
@@ -33,3 +34,18 @@ int  cursor_boot_probe(void);
    pull step): REL deltas move the clamped position, a move repaints
    via restore+save+paint. Absence (no LFB) is a silent no-op. */
 void cursor_apply(const struct input_event *ev, int n);
+
+/* M6.4: the compositor's repair entries - the sprite re-composites
+   over the CURRENT truth. cursor_scroll_repair re-draws the truth
+   for every cell the sprite's pixels crossed (they rode a dy-px
+   scroll), then re-lands; cursor_face_repair re-lands after a wipe;
+   cursor_overlap_repair re-lands when console-side painting touched
+   the sprite's slot (a console draw is a backdrop write exactly as
+   much as a scroll is). All stamp the save with the live revision. */
+void cursor_scroll_repair(u32 dy);
+void cursor_face_repair(void);
+void cursor_overlap_repair(u32 x, u32 y, u32 w, u32 h);
+
+/* The sprite's top-left (the gate's handle on where repaints land). */
+u32 cursor_x(void);
+u32 cursor_y(void);

@@ -1,6 +1,8 @@
 #include <kernel/types.h>
 #include <kernel/input.h>
 #include "fb.h"
+#include "fbcon.h"
+#include "compo.h"
 #include "cursor.h"
 
 /*
@@ -21,6 +23,7 @@ static const unsigned char art[CUR_H] = {
 static u32 cx, cy;                    /* sprite's top-left on screen */
 static u32 save[CUR_W * CUR_H];       /* pixels beneath the sprite   */
 static int  painted;                  /* sprite currently visible    */
+static u64  saved_rev;                /* backdrop rev the save is from */
 
 static void clamp_pos(void)
 {
@@ -55,15 +58,35 @@ static void restore_region(void)
     painted = 0;
 }
 
-/* One repaint cycle: RESTORE (crumb-free), then save+paint the new. */
+/* M6.4: the repaint-under path for a stale save. The save buffer is
+   only trusted while the backdrop revision it was taken under still
+   stands; once the console scrolled or cleared beneath us, the truth
+   comes from the console's own cell buffer, never from memory. */
+static void undo_by_truth(void)
+{
+    fbcon_cells_redraw(cx, cy, CUR_W, CUR_H);
+    painted = 0;
+}
+
+/* One repaint cycle (M6.4, revision-aware): erase the old sprite
+   (restore-from-save while the revision stands, repaint-from-truth
+   once it has moved on), then save+paint the new and stamp the save
+   with the live revision. Stale saves can NEVER be written back:
+   the priced M6.3 crumb is dead by construction. */
 static void move_to(u32 nx, u32 ny)
 {
-    restore_region();
+    if (painted) {
+        if (saved_rev == compo_revision())
+            restore_region();
+        else
+            undo_by_truth();
+    }
     cx = nx;
     cy = ny;
     clamp_pos();
     save_region();
     paint_sprite();
+    saved_rev = compo_revision();
 }
 
 int cursor_boot_probe(void)
@@ -116,4 +139,58 @@ void cursor_apply(const struct input_event *ev, int n)
     nx = (u32)((long)cx + dx);
     ny = (u32)((long)cy + dy);
     move_to(nx, ny);
+}
+
+/* M6.4: after a dy-px scroll the sprite's pixels rode the content -
+   its rest position holds truth pixels now, and whatever pixels the
+   sprite owned sit one row up. Redraw the truth for the whole span
+   the sprite crossed (its slot plus the dy it rode), then re-land
+   the sprite exactly where the compositor says it belongs. */
+void cursor_scroll_repair(u32 dy)
+{
+    if (!fb_present() || !fb_map()) return;
+    saved_rev = compo_revision();          /* any old save is dead    */
+    if (painted) {
+        u32 from = (cy >= dy) ? cy - dy : 0;
+        fbcon_cells_redraw(cx, from, CUR_W, CUR_H + (cy - from));
+        painted = 0;
+    }
+    save_region();
+    paint_sprite();
+    saved_rev = compo_revision();
+}
+
+/* M6.4: after a face wipe the sprite re-lands on the cleared truth. */
+void cursor_face_repair(void)
+{
+    if (!fb_present() || !fb_map()) return;
+    saved_rev = compo_revision();
+    painted = 0;                           /* the wipe erased the pixels */
+    save_region();
+    paint_sprite();
+    saved_rev = compo_revision();
+}
+
+u32 cursor_x(void) { return cx; }
+u32 cursor_y(void) { return cy; }
+
+/* M6.4: truth pixels changed in rect (x,y,w,h) - a console-side code
+   draw (putc or a planted cell). Away from the sprite's slot there
+   is nothing to repair: the save stays exactly valid, only the
+   revision bookkeeping keeps current. Overlapping the slot: the
+   paint went over (or under) the sprite, so the truth under it is
+   redrawn and the sprite re-lands - the same day-one ride the plant
+   gate caught, now impossible. */
+void cursor_overlap_repair(u32 x, u32 y, u32 w, u32 h)
+{
+    if (!fb_present() || !fb_map() || w == 0 || h == 0) return;
+    saved_rev = compo_revision();
+    if (!painted) return;
+    if (x + w <= cx || cx + CUR_W <= x || y + h <= cy || cy + CUR_H <= y)
+        return;
+    fbcon_cells_redraw(cx, cy, CUR_W, CUR_H);
+    painted = 0;
+    save_region();
+    paint_sprite();
+    saved_rev = compo_revision();
 }

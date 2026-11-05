@@ -38,3 +38,19 @@ u32  fbcon_fg(void);        /* the one static fg color           */
    map - the read side of the draw, so gates compare painted pixels
    against the font's own answer. 0 before init. */
 u64  fbcon_map_ink(u32 cp);
+
+/* M6.4: the console's own truth, addressable. The cell buffer keeps
+   one codepoint per cell, kept exact by every draw/scroll/clear, so
+   the compositor can ask "what BELONGS under the sprite" and get an
+   exact repaint - the z-order repair that ends the stale-save crumb. */
+
+/* Redraw every whole cell intersecting the pixel rect (x,y,w,h) from
+   the buffer - the repaint-under primitive the compositor uses. */
+void fbcon_cells_redraw(u32 x, u32 y, u32 w, u32 h);
+
+/* Draw one cell directly and record it (the gate's and the
+   compositor's controlled-content entry; cursor col/row untouched). */
+void fbcon_cell_draw(u32 col, u32 row, u32 cp);
+
+/* The buffer's truth for one cell (0 where blank or out of range). */
+u32  fbcon_cell_get(u32 col, u32 row);

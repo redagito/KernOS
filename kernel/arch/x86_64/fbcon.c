@@ -2,6 +2,7 @@
 #include <kernel/utf8.h>
 #include "fbcon.h"
 #include "fb.h"
+#include "compo.h"
 
 /*
  * fbcon.c — glyph console on the M5.6 linear framebuffer.
@@ -33,6 +34,14 @@ static u32 col, row, cols, rows;              /* cursor + screen in cells */
 static struct utf8_state u8st;                /* M6.2 byte decode acc    */
 static u64 scrolls;                           /* hard scroll counter    */
 static u32 fg = 0x00AAAAAA;                   /* light grey on black    */
+
+/* M6.4: one codepoint per cell - the console's own truth. Every
+   draw, scroll and clear keeps it exact, so "what belongs under the
+   sprite" is a fact, not a reconstruction. Codepoint 0 draws glyph 0
+   (blank), so a zeroed buffer IS the blank screen. Capped statically:
+   a screen over the cap is an init-time named refusal, not a guess. */
+#define FBCON_MAX_CELLS 8192
+static u32 cellbuf[FBCON_MAX_CELLS];
 
 u32 fbcon_fg(void) { return fg; }
 u32 fbcon_cols(void) { return cols; }
@@ -71,8 +80,10 @@ int fbcon_init(void)
     cols = fb_width() / gw;
     rows = fb_height() / gh;
     if (cols == 0 || rows == 0) return -1;
+    if ((u64)cols * rows > FBCON_MAX_CELLS) return -1;
     col = 0;
     row = 0;
+    for (u32 i = 0; i < (u64)cols * rows; ++i) cellbuf[i] = 0;
     utf8_reset(&u8st);
     return 0;
 }
@@ -129,6 +140,20 @@ static void scroll(void)
     fb_region_copy(0, gh, fb_width(), fb_height() - gh, 0, 0);
     fb_rect_fill(0, fb_height() - gh, fb_width(), gh, 0);
     ++scrolls;
+
+    /* M6.4: the buffer scrolls EXACTLY with the pixels - one row up,
+       zeroed tail - so any later "what belongs here" read is the
+       scrolled truth, not the pre-scroll one. */
+    for (u32 r2 = 1; r2 < rows; ++r2)
+        for (u32 c2 = 0; c2 < cols; ++c2)
+            cellbuf[(r2 - 1) * cols + c2] = cellbuf[r2 * cols + c2];
+    for (u32 c2 = 0; c2 < cols; ++c2)
+        cellbuf[(rows - 1) * cols + c2] = 0;
+
+    /* the compositor re-composites the sprite over the new truth
+       (the sprite's pixels rode this scroll; its slot is re-drawn
+       from the buffer and the sprite re-lands) */
+    compo_backdrop_scroll(gh);
 }
 
 void fbcon_clear(void)
@@ -136,6 +161,8 @@ void fbcon_clear(void)
     fb_rect_fill(0, 0, fb_width(), fb_height(), 0);
     col = 0;
     row = 0;
+    for (u32 i = 0; i < (u64)cols * rows; ++i) cellbuf[i] = 0;
+    compo_face_cleared();
 }
 
 void fbcon_putc(char c)
@@ -169,6 +196,8 @@ void fbcon_putc(char c)
     if (r == 0) return;                       /* part of a sequence    */
 
     draw_cell(col, row, cp);                  /* one CELL per CODEPOINT */
+    cellbuf[(u64)row * cols + col] = cp;
+    compo_cells_painted(col * gw, row * gh, gw, gh);
     if (++col >= cols) {
         col = 0;
         if (++row >= rows) {
@@ -181,4 +210,40 @@ void fbcon_putc(char c)
 void fbcon_puts(const char *s)
 {
     while (*s) fbcon_putc(*s++);
+}
+
+/* M6.4 compositor's read-back entry: repaint the whole cells under a
+   pixel rect from the buffer. The sprite's move and the scroll
+   repair both land here - the ONE repaint-under primitive. Pure:
+   col/row and the decoder state are untouched. */
+void fbcon_cells_redraw(u32 x, u32 y, u32 w, u32 h)
+{
+    u32 cx0, cy0, cx1, cy1;
+
+    if (cols == 0 || w == 0 || h == 0) return;
+    if (x >= fb_width() || y >= fb_height()) return;
+    if (w - 1 > fb_width() - 1 - x) w = fb_width() - x;
+    if (h - 1 > fb_height() - 1 - y) h = fb_height() - y;
+
+    cx0 = x / gw;
+    cy0 = y / gh;
+    cx1 = (x + w - 1) / gw;
+    cy1 = (y + h - 1) / gh;
+    for (u32 r = cy0; r <= cy1; ++r)
+        for (u32 c = cx0; c <= cx1; ++c)
+            draw_cell(c, r, cellbuf[(u64)r * cols + c]);
+}
+
+void fbcon_cell_draw(u32 c, u32 r, u32 cp)
+{
+    if (cols == 0 || c >= cols || r >= rows) return;
+    cellbuf[(u64)r * cols + c] = cp;
+    draw_cell(c, r, cp);
+    compo_cells_painted(c * gw, r * gh, gw, gh);
+}
+
+u32 fbcon_cell_get(u32 c, u32 r)
+{
+    if (cols == 0 || c >= cols || r >= rows) return 0;
+    return cellbuf[(u64)r * cols + c];
 }

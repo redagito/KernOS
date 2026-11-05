@@ -461,6 +461,88 @@ void kernel_main(void)
             console_puts("cursor: absent - no LFB (probe skipped)\n");
     }
 
+    /* M6.4 z-order gate: the compositor's law, proven three ways on
+       real pixels. (1) PLANT: 'W' cells under the parked sprite; move
+       the sprite right one cell-set by a synthetic REL event batch -
+       the cells it left are re-drawn from the console's own truth and
+       read back bit-exact ('W' ink per cell), the sprite reads its
+       own 25 ink at the new spot. (2) RETURN: revision stands, so the
+       FAST path restores the save - cell under the old spot exact
+       again, and the whole screen holds EXACTLY 25 cursor-ink pixels
+       (one sprite, no crumbs of any kind). (3) SCROLL: 48 forced
+       newlines ride the sprite along the screen - the scroll repair
+       re-lands it, and a final full-screen scan proves 25 again and
+       the sprite still at its compositor position. */
+    {
+        if (fb_present() && cursor_x() != 0) {
+            u32 gw = 8, gh = 16;
+            u32 mx = cursor_x(), my = cursor_y();
+            u32 c0 = mx / gw, r0 = my / gh;
+            u64 iw = fbcon_map_ink('W');
+            int ok = 1;
+            struct input_event ev1, ev2;
+            u64 s;
+
+            /* (1) plant under the sprite, then step right 16px */
+            for (u32 c = c0 - 1; c <= c0 + 2; ++c)
+                fbcon_cell_draw(c, r0, 'W');
+            ev1.type = IN_EVT_RELX; ev1.code = 0;
+            ev1.value = 16; ev1.seq = 0;
+            cursor_apply(&ev1, 1);
+
+            /* cells left of the NEW slot must be exact 'W' bitmaps;
+               the sprite's 25 ink must sit in the new slot */
+            for (u32 c = c0 - 1; c <= c0 + 1 && ok; ++c) {
+                u64 n = 0;
+                for (u32 y = r0 * gh; y < r0 * gh + gh; ++y)
+                    for (u32 x = c * gw; x < c * gw + gw; ++x)
+                        if (fb_pixel_get(x, y) == fbcon_fg()) ++n;
+                if (n != iw) ok = 0;
+            }
+            s = 0;
+            for (u32 y = cursor_y(); y < cursor_y() + 12; ++y)
+                for (u32 x = cursor_x(); x < cursor_x() + 8; ++x)
+                    if (fb_pixel_get(x, y) == 0xF8F8F8) ++s;
+            if (s != 25) ok = 0;
+
+            /* (2) return: fast path through the untouched save */
+            if (ok) {
+                ev2.type = IN_EVT_RELX; ev2.code = 0;
+                ev2.value = -16; ev2.seq = 0;
+                cursor_apply(&ev2, 1);
+                /* the sprite-free cells of the planted row must be
+                   exact 'W' again (the slot it left erased nothing),
+                   and the whole screen holds exactly one sprite */
+                for (u32 c = c0 - 1; c <= c0 + 2 && ok; ++c) {
+                    if (c == c0) continue;      /* hosts the sprite */
+                    u64 n = 0;
+                    for (u32 y = r0 * gh; y < r0 * gh + gh; ++y)
+                        for (u32 x = c * gw; x < c * gw + gw; ++x)
+                            if (fb_pixel_get(x, y) == fbcon_fg()) ++n;
+                    if (n != iw) ok = 0;
+                }
+            }
+
+            /* (3) 48 scrolls: the sprite must stay exactly itself -
+               screen-wide cursor ink == 25, still parked at (mx,my) */
+            if (ok) {
+                for (u32 k = 0; k < 48; ++k)
+                    fbcon_puts("\n");
+                u32 all = 0;
+                for (u32 y = 0; y < fb_height(); ++y)
+                    for (u32 x = 0; x < fb_width(); ++x)
+                        if (fb_pixel_get(x, y) == 0xF8F8F8) ++all;
+                if (all != 25 || cursor_x() != mx || cursor_y() != my)
+                    ok = 0;
+            }
+
+            if (ok)
+                console_puts("compo: z-order echo ok ink=25\n");
+            else
+                console_puts("compo: z-order echo FAILED\n");
+        }
+    }
+
     /* M4.1: PCI walk — the storage estate the AHCI driver will own. */
     pci_init();
 

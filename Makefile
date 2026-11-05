@@ -58,6 +58,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/fbcon.o \
 	$(OBJ)/font.o \
 	$(OBJ)/cursor.o \
+	$(OBJ)/compo.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
@@ -267,6 +268,13 @@ $(OBJ)/utf8.o: kernel/utf8.c include/kernel/utf8.h
 # restore->save->paint order the M6.4 window layer adopts.
 $(OBJ)/cursor.o: kernel/arch/x86_64/cursor.c kernel/arch/x86_64/cursor.h \
 		include/kernel/input.h
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+# The compositor (M6.4): owns z-order - backdrop revisions and the
+# sprite's re-composite ordering, the structural end of the crumb.
+$(OBJ)/compo.o: kernel/arch/x86_64/compo.c kernel/arch/x86_64/compo.h \
+		kernel/arch/x86_64/cursor.h kernel/arch/x86_64/fbcon.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

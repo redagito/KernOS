@@ -88,19 +88,14 @@ u64 sysc_user_exits(void)
     return user_exits;
 }
 
-/* Name intern for spawn evidence: thread->name must outlive the
-   dispatch frame; the v0 gate serializes spawns, so one hold fits. */
-static char prog_name_store[16];
-static const char *spawn_prog_name(const char *n)
-{
-    u64 i = 0;
-    while (n[i] && i < sizeof prog_name_store - 1) {
-        prog_name_store[i] = n[i];
-        ++i;
-    }
-    prog_name_store[i] = '\0';
-    return prog_name_store;
-}
+/* M5.12 (round-three review, F-5): the name intern LIVED here - one
+   16-byte static that every successfully spawned thread's record
+   pointed at. The next spawn rewrote it and every parked record
+   displayed the newest program instead of its own. The ownership moved
+   into sched.c: struct thread carries namebuf[17] and set_name() makes
+   the record's own bound copy. The dispatch frame's `name` (a stack
+   local, dead at return) is now passed straight to thread_spawn_user,
+   which copies it before anything pointer survives the frame. */
 
 void syscall_dispatch(struct trapframe *tf)
 {
@@ -252,7 +247,7 @@ void syscall_dispatch(struct trapframe *tf)
             r = (u64)SYS_EINVAL;      /* missing file = one error, v0 */
             break;
         }
-        int tid = thread_spawn_user(spawn_prog_name(name), spawn_img, (u64)got);
+        int tid = thread_spawn_user(name, spawn_img, (u64)got);
         r = tid > 0 ? (u64)tid : (u64)SYS_EINVAL;
         break;
     }

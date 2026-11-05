@@ -32,7 +32,7 @@ struct elf_seg {
 };
 
 /* Parse buf, validate, fill entry/segs (PT_LOAD only, in phdr order).
-   0 = ok; negative = refuse (see elf64_errorstring for naming). */
+   0 = ok; negative = refuse (see elf64_errname for naming). */
 int  elf64_plan(const void *buf, u64 len, u64 *entry,
                 struct elf_seg *segs, int *nsegs);
 

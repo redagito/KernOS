@@ -31,6 +31,15 @@ struct thread {
     int          nframes;
     int          ppid;                 /* spawner's tid (user procs; 0)  */
     int          waitq;                /* queue if T_WAITING             */
+    /* M5.12 (round-three review, F-5): the name the record displays is
+       OWNED here - name points at namebuf, never at a caller frame or
+       a shared static. The old shape pointed every successfully
+       spawned thread at one 16-byte prog_name_store in syscall.c: the
+       NEXT successful spawn rewrote it and every parked record thereby
+       displayed the wrong program. Safe today only because the gate
+       serializes spawns - an aliasing trap lying in wait for the first
+       concurrent spawn or name dump. */
+    char         namebuf[17];
 };
 
 static struct thread threads[MAX_THREADS];
@@ -75,6 +84,21 @@ static void load_cr3(u64 pa)
 void swtch(u64 **save_slot, u64 *new_sp);       /* swtch.s */
 void thread_entry(void);                        /* swtch.s  */
 
+/* M5.12 (F-5): the record's name is an owned bound copy - at most
+   sizeof(namebuf)-1 chars plus the NUL, never a pointer into a caller
+   frame (dead at dispatch return) or a shared static (rewritten by the
+   next tenant's spawn). */
+static void set_name(struct thread *t, const char *n)
+{
+    u64 i = 0;
+    while (n[i] && i < sizeof t->namebuf - 1) {
+        t->namebuf[i] = n[i];
+        ++i;
+    }
+    t->namebuf[i] = '\0';
+    t->name = t->namebuf;
+}
+
 void sched_init(void)
 {
     boot_cr3    = 0;
@@ -83,7 +107,7 @@ void sched_init(void)
     cr3_loaded  = boot_cr3;
 
     threads[0].id     = 0;
-    threads[0].name   = "main";
+    set_name(&threads[0], "main");
     threads[0].ctx    = 0;             /* first swtch-out fills it */
     threads[0].state  = T_RUNNABLE;
     threads[0].cr3    = 0;
@@ -127,7 +151,7 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
                                by the new tenant */
     struct thread *t = &threads[i];
     t->id    = i;
-    t->name  = name;
+    set_name(t, name);              /* owned copy, not a borrowed pointer */
     t->cr3   = 0;
     t->ppid  = 0;                    /* kernel thread: not a child proc */
     t->waitq = 0;
@@ -162,7 +186,7 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
         return -1;
 
     t->id   = i;
-    t->name = name;
+    set_name(t, name);              /* owned copy, not a borrowed pointer */
     t->cr3  = cr3;
     t->ppid = cur ? (int)cur->id : 0;    /* spawner link (WAIT collects) */
     t->waitq = 0;

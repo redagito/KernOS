@@ -133,11 +133,3 @@ const struct pci_dev *pci_dev_get(int i)
     if (i < 0 || i >= ndevs) return 0;
     return &devs[i];
 }
-
-const struct pci_dev *pci_find_class(u32 base_class)
-{
-    for (int i = 0; i < ndevs; ++i)
-        if ((devs[i].class_code >> 16) == base_class)
-            return &devs[i];
-    return 0;
-}

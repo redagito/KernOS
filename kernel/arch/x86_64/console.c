@@ -35,11 +35,6 @@ void console_fbcon(void)
     face = FACE_FBCON;
 }
 
-int  console_on_fbcon(void)
-{
-    return face == FACE_FBCON;
-}
-
 u64  console_mirrored(void)
 {
     return mirrored;

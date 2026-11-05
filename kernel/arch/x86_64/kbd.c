@@ -115,14 +115,6 @@ static void kbd_handler(struct trapframe *tf)
     }
 }
 
-char kbd_getc(void)
-{
-    if (head == tail) return 0;
-    char c = (char)ring[tail];
-    tail = (u8)((tail + 1) & RING_MASK);
-    return c;
-}
-
 /* M5.5: batch drain for the syscall gate's READ (fd 0). Caller runs
    with IF off (the gate guarantees it), so consumer vs. IRQ handler
    cannot interleave on the ring indices. Returns 0..max bytes. */

@@ -262,10 +262,3 @@ u64 ahci_sector_count(void)
 {
     return active_port < 0 ? 0 : sectors_total;
 }
-
-void ahci_info(void)
-{
-    console_puts("ahci: capacity=");
-    console_puts_hex(sectors_total);
-    console_puts(" sectors\n");
-}

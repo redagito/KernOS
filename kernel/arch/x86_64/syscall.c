@@ -64,7 +64,6 @@ static int page_u_ok(u64 va)
 }
 
 /* Full [va, va+n) N-page check; also refuses rollover. */
-/* Full [va, va+n) N-page check; also refuses rollover. */
 static int user_ptr_ok(u64 va, u64 n)
 {
     if (n == 0)

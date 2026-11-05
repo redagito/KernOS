@@ -30,5 +30,4 @@ void console_putc(char c);
 void console_puts(const char *s);
 void console_puts_hex(u64 v);   /* 16 hex digits, no 0x prefix      */
 
-int  console_on_fbcon(void);    /* 1 = face is the LFB console      */
 u64  console_mirrored(void);    /* mirrored bytes since console_init */

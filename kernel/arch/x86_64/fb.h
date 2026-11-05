@@ -25,7 +25,6 @@ u32 fb_present(void);      /* width, or 0 */
 u32 fb_width(void);
 u32 fb_height(void);
 u32 fb_pitch(void);        /* bytes per scanline */
-u32 fb_bpp(void);          /* always 32 when present */
 u64 fb_phys(void);         /* physical base of the LFB */
 
 /* Pixel poke at (x,y) with 0x00RRGGBB - transparent to layout: the

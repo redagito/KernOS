@@ -12,9 +12,6 @@
 
 void kbd_init(void);
 
-/* Nonblocking: returns the next decoded ASCII byte, 0 when empty. */
-char kbd_getc(void);
-
 /* Batch drain (M5.5): up to max decoded ASCII bytes into dst.
    Returns the count (0 = ring empty). Caller must run IF off. */
 int  kbd_pull(char *dst, int max);

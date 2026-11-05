@@ -29,8 +29,6 @@ KFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin \
 	-I$(INC) -Ikernel -MMD -MP \
 	-DTRAP_SELFTEST=$(TRAP_SELFTEST)
 
-TRAP_SELFTEST ?= 0
-
 HOST_CFLAGS := -std=c11 -O2 -Wall -Wextra
 
 # -----

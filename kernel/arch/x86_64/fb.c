@@ -67,7 +67,6 @@ u32 fb_present(void) { return mode.width; }
 u32 fb_width(void)  { return mode.width; }
 u32 fb_height(void) { return mode.height; }
 u32 fb_pitch(void)  { return mode.pitch; }
-u32 fb_bpp(void)    { return mode.bpp; }
 u64 fb_phys(void)   { return mode.phys; }
 
 u64 fb_map(void)

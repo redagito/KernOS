@@ -123,7 +123,13 @@ int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap)
                 emit_char(out, cap, &pos, *fmt);
             break;
         }
-        fmt++;
+        /* M5.12: step is conditional on the format still being there -
+           the bare tail fmt++ stepped over the NUL when the format
+           ended in '%' / '%l' (flag consumed, no verb), and the loop
+           kept scanning whatever followed the string in memory. For
+           every in-string case *fmt names the consumed verb here. */
+        if (*fmt)
+            fmt++;
     }
     if (cap)
         out[pos < cap - 1 ? pos : cap - 1] = '\0';

@@ -104,6 +104,27 @@ int main(void)
               "cap=1 parks only the NUL, return honest");
     }
 
+    /* M5.12: the loop must stop AT the terminator even when the
+       format ends in a bare % or flag-without-verb. Sentinel bytes
+       are planted AFTER the NUL inside the caller's own array: the
+       old unconditional tail `fmt++` stepped over the terminator,
+       adopted the sentinel as a verb position, and kept scanning
+       (on real callers: past the literal into neighboring rodata). */
+    {
+        char f[6] = { 'a', '%', '\0', 'X', '\0', '\0' };
+        memset(buf, 0, sizeof buf);
+        int n = vsnprintf(buf, sizeof buf, f, (char *)0);
+        check(n == 2 && !strcmp(buf, "a%"),
+              "trailing %% ends AT the terminator, no sentinel ride");
+    }
+    {
+        char f[8] = { 'a', '%', 'l', '\0', 'X', '\0', '\0', '\0' };
+        memset(buf, 0, sizeof buf);
+        int n = vsnprintf(buf, sizeof buf, f, (char *)0);
+        check(n == 2 && !strcmp(buf, "a%"),
+              "trailing %%l ends AT the terminator, no sentinel ride");
+    }
+
     /* the exact shape the boot gate will print: two ints, closing nl */
     check(fmt("u1: pid=%d tick=%d\n", 3, 2) == 17 &&
           !strcmp(buf, "u1: pid=3 tick=2\n"), "the u1 gate line, formatted");

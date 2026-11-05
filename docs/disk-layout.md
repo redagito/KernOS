@@ -148,16 +148,24 @@ as absence.
 Stage 2's own strategy (implementation, not ABI): it first programs the
 Bochs dispi registers (0x1CE/0x1CF) directly — register-level, no BIOS
 — because QEMU's std VGA emulates exactly that and its BIOS mode list
-offers only one 32-bpp LFB mode. Failing that it enumerates the card's
-own VBE mode list (4F00/4F01) and keeps the largest 32-bpp LFB mode;
-failing that it tries a small static candidate table. Every step
-validates what the mode actually reports before it is handed down.
+offers only one 32-bpp LFB mode. Since M5.12 it verifies that
+programming by reading the geometry registers back and handing off only
+when the card echoes the request (XRES, YRES and BPP equal to what was
+written); on refusal the card is parked disabled and the BIOS path is
+taken instead. Failing that it enumerates the card's own VBE mode list
+(4F00/4F01) and keeps the largest 32-bpp LFB mode; failing that it tries
+a small static candidate table. Every step validates what the mode
+actually reports before it is handed down.
 
 ### COM1 phase sensors (boot chain, single ASCII chars)
 
 The boot chain emits stage-1 gutters and phase letters on COM1:
-`1 a j` (stage 1), then `U` (A20), `M` (E820), and since M5.6 `V`
-(a 32-bpp LFB mode was set and verified — only when true), then `H`
+`1 a j` (stage 1), then `U` (A20), `M` (E820), `d` (dispi primary
+engaged) or `e` (the VBE enumeration path was taken — also after a
+dispi read-back refusal, which first emits `r`), and since M5.6 `V`
+(a 32-bpp LFB mode was set and verified — only when true: dispi
+read-back echo on the primary path, 4F01-reported geometry on the
+enumeration path), then `H`
 (KIH valid), `L` (kernel loaded), `P` (page tables), `K` (kernel
 jumped). `X` = stage2_fail (any named failure path); the machine halts.
 Absence of `V` is a signal, not an error: the boot continues without a

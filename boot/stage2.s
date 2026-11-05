@@ -216,6 +216,9 @@ e820_done:
     andl $0xFFF8, %eax
     cmpl $0xB0C0, %eax
     jne vbe_enum_start                 /* no dispi: BIOS fallback */
+    movl $0x3F8, %edx                  /* phase 'd': dispi primary engaged */
+    movb $'d', %al
+    outb %al, %dx
 
     /* locate the display device: bus 0, dev d, BAR0 = offset 0x10,
        class register = offset 0x08 (base class is bit 23..16). */
@@ -302,7 +305,51 @@ dispi_have_phys:
     movw $(DISPI_ENABLED | DISPI_LFB), %ax
     outw %ax, %dx
 
-    /* handoff: the geometry we just programmed + the PCI truth */
+    /* M5.12 (round-three review, F-4) read-back verify: the handoff
+       below used to carry the REQUEST, not a reply, while the docs
+       said "set and verified". Verify now: re-read the three geometry
+       registers and only hand off when the card echoes the request.
+       cmpw keeps every test to AX - exactly what inw returns - so no
+       upper-bit question remains. Refusal parks the card (enable off,
+       it was left holding OUR geometry), emits 'r', and takes the
+       BIOS path (which reads 4F01 truth back) - never a halt. */
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_XRES, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    inw %dx, %ax
+    cmpw $FB_W, %ax
+    jne dispi_refuse
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_YRES, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    inw %dx, %ax
+    cmpw $FB_H, %ax
+    jne dispi_refuse
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_BPP, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    inw %dx, %ax
+    cmpw $32, %ax
+    jne dispi_refuse
+    jmp dispi_handoff
+
+dispi_refuse:
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_ENABLE, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    xorw %ax, %ax
+    outw %ax, %dx                      /* refuse: park the card disabled */
+    movl $0x3F8, %edx                  /* phase 'r': read-back refused */
+    movb $'r', %al
+    outb %al, %dx
+    jmp vbe_enum_start
+
+dispi_handoff:
+    /* handoff: the geometry just read back from the card + PCI truth */
     movl $FB_W, %eax
     movl %eax, FB_INFO_AT
     movl $FB_H, %eax
@@ -322,6 +369,11 @@ dispi_have_phys:
     jmp vbe_done
 
 vbe_enum_start:
+    movl $0x3F8, %edx                  /* phase 'e': enumeration path taken
+                                          (no dispi id / no display class
+                                          device / read-back refused) */
+    movb $'e', %al
+    outb %al, %dx
     /* ----- FALLBACK: enumerate the card's own list (4F00),
        interrogate each entry (4F01), keep the largest 32 bpp LFB mode.
        No mode-number folklore: the card's list is the truth. Falls

@@ -28,7 +28,10 @@ int printf(const char *fmt, ...)
        this clamp's silent cutting. */
     if (n > (int)sizeof buf - 1)
         n = (int)sizeof buf - 1;
-    write(STDOUT_FILENO, buf, (size_t)n);  /* return = formatter length */
+    write(STDOUT_FILENO, buf, (size_t)n);
+    /* return = the OUTPUT length actually transmitted after clamping -
+       would-be formatter length UNLESS output was limited (M5.10
+       clamp). Callers wanting the full length use snprintf + write. */
     return n;
 }
 

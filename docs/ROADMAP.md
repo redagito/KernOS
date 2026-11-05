@@ -463,6 +463,43 @@ as listed below.
   MaxWaitBootSec floor - require-cues are copied from observed
   serial identities, never constructed. Host ledger at M5.12:
   132 checks / 0 failures (format grew to 25).
+- **M5.14 — round-four repairs: four fixes, one doctrine close-out,
+  and the repair that caught a waiting bug (locked 2026-11-05)**
+  All round-four acting findings verified at their exact lines;
+  doctrine audit: ALL SIX RECORD DOCTRINE RULES HOLD, with two
+  priced gaps ruled to close-out. One commit per finding, red/green
+  where a red exists:
+  1. The userland build tracks its headers (8f03a68): UFLAGS lacked
+     -MMD -MP, so lc_*.o and the program objects emitted no .d files
+     and a libc-header edit shipped a stale image with every gate
+     green (stdlib.h appears in NO hand-list). Red at the make level
+     (dep_probe): header touch, object mtime unchanged, 0 lc dep
+     files; green: 6 lc_*.d, verdict flips.
+  2. Stage2 drives the register it verify-reads (1c5182d): BAR0
+     tests the I/O-space flag bit before masking, and the read-back
+     adds the missing fourth cmpw on VWIDTH - WHICH CAUGHT THE BUG:
+     DISPI_VWIDTH was 7, the Bochs ABI's VIRT_HEIGHT (read-only);
+     the "virt width" write had silently no-op'd since M5.6 and
+     pitch 4096 came from QEMU's enable-time fixup, not our
+     instruction. Red boots: 1ajUMdreVHLPK (refused, 320x200
+     fallback) and 1ajUMd1003reVHLPK (hex probe: the refused value
+     was a post-fixup VIRT_HEIGHT echo). Green: 1ajUMdVHLPK, fb:
+     mapped 1024x768x32 pitch=4096 EARNED.
+  3. Init-to-absence at claim time (4c058d6): kernel spawns
+     initialize nframes too (stale released-count after a refused
+     user build - formally a rule-2 violation, unreachable today);
+     the waitq 0-aliasing-of-SCHED_WQ_KBD encoding is now an
+     authored priced note with its supersession condition, in the
+     field table.
+  4. The bss zeroing covers its tail (0a40807): sub-8-byte
+     remainder zeroed explicitly (rep stosb); no red claimed -
+     constructing one needs the misaligned object the fix defends
+     against. Kernel 40108 B, kchk 0x17be5b62.
+  5. Doc-truth sweep: README ledger 130 -> 132,
+     syscall-abi v0 "non-preemptible" rewritten to the shipped
+     M5.5 blocking-gate reality, printf's return comment now names
+     the clamped output length (image byte-identical after,
+     SHA256-proven).
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

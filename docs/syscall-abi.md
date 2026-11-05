@@ -36,8 +36,11 @@ v0 rules beyond the table:
   for userland to lie.
 - Unknown numbers return `-1` (`EINVAL`-equivalent) silently; a
   kernel may log, but must not crash on them.
-- Syscalls in v0 are non-preemptible (no tick inside the gate).
-  Long-blocking syscalls arrive with the wait-queue work.
+- Syscalls ARE preemptible since M5.5: the PIT keeps firing inside
+  the gate, and a long-blocking syscall (READ) parks its whole
+  trapframe on the kernel stack via sched_block and waits on
+  SCHED_WQ_KBD - wake + reschedule resumes the gate mid-dispatch and
+  the stub's iretq restores the caller's interrupt flag.
 
 ## v0 numbers
 

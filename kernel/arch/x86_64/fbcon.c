@@ -197,6 +197,18 @@ static void fbcon_putc_face(char c)
 
     if (cols == 0) return;                    /* un-inited console      */
     if (b == '\r') { col = 0; return; }
+    if (b == '\b') {
+        /* The editor's erase cycle (backspace + space + backspace)
+           needs the "move back ONTO the dying char" first step, or
+           nothing erases and the cursor eats cells to the right (the
+           named red: 'ab\b \bx' must land 'ax' on the truth, painted
+           glyph 8 used to blank the cell AFTER the caret and drift
+           it three right). Move-only, and never up into the line
+           above - the text face of old stepped exactly as far and
+           no farther. */
+        if (col) --col;
+        return;
+    }
     if (b == '\n') {
         col = 0;
         if (++row >= rows) {

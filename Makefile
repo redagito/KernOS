@@ -29,7 +29,7 @@ KFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin \
 	-I$(INC) -Ikernel -MMD -MP \
 	-DTRAP_SELFTEST=$(TRAP_SELFTEST)
 
-HOST_CFLAGS := -std=c11 -O2 -Wall -Wextra
+HOST_CFLAGS := -std=c11 -O2 -Wall -Wextra -fno-builtin
 
 # -----
 # Kernel objects
@@ -138,7 +138,7 @@ $(BUILD)/testdisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf $(BUILD)/shell.elf
 
 $(BUILD)/test_fat32: tests/test_fat32.c tests/blk_host.c kernel/fat32.c \
 		include/kernel/block.h kernel/fat32.h include/kernel/bench.h \
-		include/kernel/types.h
+		include/kernel/types.h $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -o $@ \
 		tests/test_fat32.c tests/blk_host.c kernel/fat32.c
@@ -148,17 +148,16 @@ $(BUILD)/test_fat32: tests/test_fat32.c tests/blk_host.c kernel/fat32.c \
 # test_elf64 exercises both the synthetic reject cases and the real
 # U1.ELF the fixture rides.
 $(BUILD)/test_elf64: tests/test_elf64.c kernel/elf64.c \
-		include/kernel/elf64.h include/kernel/types.h
+		include/kernel/elf64.h include/kernel/types.h $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_elf64.c kernel/elf64.c
 
-# NOTE (M5.10, found while gating F10): everything the recipe RUNS must
-# also be in the prerequisite list - test_input and test_font were
-# recipe-only, so `make hosttest` happily executed whatever STALE binary
-# lay in build/ (the input suite ran a binary built before this
-# milestone's checks were added). Being in the prerequisite list makes
-# make rebuild them when their sources change; the recipe then runs
-# every binary fresh.
+# NOTE (M5.11, the second costume of the stale-binary lie): the FLAGS
+# are part of the artifact. HOST_CFLAGS lives in this Makefile, so a
+# flag change left every test binary considered up-to-date - the
+# format suite kept running with gcc's builtin folding after the
+# -fno-builtin discipline landed. $(MAKEFILE_LIST) as prerequisite
+# makes any recipe/flag change rebuild the test binaries.
 hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_format $(BUILD)/test_font $(BUILD)/test_input \
 	$(BUILD)/font.psf2 $(BUILD)/u1.elf $(BUILD)/shell.elf
@@ -170,21 +169,21 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 
 # vsnprintf is libc's one portable-holy module: it answers for itself
 # on the host, so the boot gate never has to prove formatting.
-$(BUILD)/test_format: tests/test_format.c libc/src/format.c
+$(BUILD)/test_format: tests/test_format.c libc/src/format.c $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Ilibc/include -o $@ tests/test_format.c libc/src/format.c
 
 # The console font answers for itself on the host: the container
 # contract (PSF2 fields) and the glyph presence rules are checked on
 # exactly the build/font.psf2 the kernel embeds.
-$(BUILD)/test_font: tests/test_font.c $(BUILD)/font.psf2
+$(BUILD)/test_font: tests/test_font.c $(BUILD)/font.psf2 $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -o $@ tests/test_font.c
 
 # The input event core answers for itself: the same kernel/input.c the
 # IRQ handlers and gate nr 7 run, driven to the drop boundary on host.
 $(BUILD)/test_input: tests/test_input.c kernel/input.c \
-		include/kernel/input.h include/kernel/types.h
+		include/kernel/input.h include/kernel/types.h $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_input.c kernel/input.c
 

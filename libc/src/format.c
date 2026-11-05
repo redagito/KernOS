@@ -19,9 +19,17 @@
  * (so callers can size buffers honestly).
  */
 
+/* One character lands at pos unless the buffer is too small to hold
+   it plus a NUL. cap==0 means "size it only": out may be NULL (C99),
+   nothing is ever written - so the guard must be cap > 1, NOT the
+   naive pos < cap - 1, which underflows a zero size_t. (M5.11: the
+   old cap==0 early-return in vsnprintf was a LIE hiding this very
+   overflow - it returned 0 instead of the would-be length, and the
+   suite never caught it because gcc folded the host test's calls
+   into its builtin before -fno-builtin became host discipline.) */
 static int emit_char(char *out, size_t cap, size_t *pos, char c)
 {
-    if (*pos < cap - 1)
+    if (cap > 1 && *pos < cap - 1)
         out[*pos] = c;
     ++*pos;
     return 0;
@@ -57,9 +65,9 @@ int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap)
 {
     size_t pos = 0;
 
-    if (cap == 0)
-        return 0;
-
+    /* cap==0: pure would-be length, nothing written (C99). The loop
+       below is honest for it now: emit_char refrains, the NUL-park
+       below is guarded. No early return 0 - that was the bug. */
     while (*fmt) {
         if (*fmt != '%') {
             emit_char(out, cap, &pos, *fmt++);
@@ -117,6 +125,7 @@ int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap)
         }
         fmt++;
     }
-    out[pos < cap - 1 ? pos : cap - 1] = '\0';
+    if (cap)
+        out[pos < cap - 1 ? pos : cap - 1] = '\0';
     return (int)pos;
 }

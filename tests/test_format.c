@@ -38,6 +38,16 @@ static int fmt(const char *f, ...)
     return n;
 }
 
+/* same shape, caller-sized sink: the cap-0/cap-1 contract prober */
+static int fmtsize(char *out, size_t cap, const char *f, ...)
+{
+    va_list ap;
+    va_start(ap, f);
+    int n = vsnprintf(out, cap, f, ap);
+    va_end(ap);
+    return n;
+}
+
 int main(void)
 {
     check(fmt("") == 0 && buf[0] == '\0', "empty format yields empty string");
@@ -80,6 +90,18 @@ int main(void)
         char tiny[1];
         int n = vsnprintf(tiny, 0, "anything", (char *)0);
         check(n == 8, "cap=0 writes nothing, return still honest");
+    }
+    {
+        /* M5.11: the cap==0 contract with REAL formatting work and a
+           NULL buffer - and cap=1, where only the NUL may land. Both
+           ride a helper: a va_list is an array (decays to a pointer),
+           so it cannot be "passed as the value 5" like an int. */
+        char one[1];
+        memset(one, 'Z', sizeof one);
+        check(fmtsize((char *)0, 0, "%d apples", 5) == 8,
+              "cap=0 NULL buffer formats and still counts");
+        check(fmtsize(one, 1, "abcdef") == 6 && one[0] == '\0',
+              "cap=1 parks only the NUL, return honest");
     }
 
     /* the exact shape the boot gate will print: two ints, closing nl */

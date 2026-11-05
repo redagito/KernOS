@@ -152,8 +152,16 @@ $(BUILD)/test_elf64: tests/test_elf64.c kernel/elf64.c \
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_elf64.c kernel/elf64.c
 
+# NOTE (M5.10, found while gating F10): everything the recipe RUNS must
+# also be in the prerequisite list - test_input and test_font were
+# recipe-only, so `make hosttest` happily executed whatever STALE binary
+# lay in build/ (the input suite ran a binary built before this
+# milestone's checks were added). Being in the prerequisite list makes
+# make rebuild them when their sources change; the recipe then runs
+# every binary fresh.
 hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
-	$(BUILD)/test_format
+	$(BUILD)/test_format $(BUILD)/test_font $(BUILD)/test_input \
+	$(BUILD)/font.psf2 $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
 	$(BUILD)/test_format

@@ -90,6 +90,41 @@ int main(void)
         check(mono, "seq advances by exactly 1 across the whole drain");
     }
 
+    /* pair atomicity at the drop boundary (M5.10, F10): a packet is
+       REFUSED AS A UNIT when only one slot is free - no half pairs. */
+    {
+        u64 d0, drops0;
+        int total = 0, rels = 0, mono2 = 1;
+        u32 lastseq;
+        while (input_pull(ev, 16)) { }          /* ring empty */
+        d0 = input_delivered();
+        drops0 = input_dropped();
+        for (int i = 0; i < 126; ++i) input_push_key('k');
+        /* 126 occupants in a 127-capacity ring = exactly ONE slot free */
+        check(input_delivered() == d0 + 126 && input_dropped() == drops0,
+              "fill to one free slot delivers all 126");
+
+        input_push_rel((i16)5, (i16)-5);         /* does NOT fit as a pair */
+        check(input_delivered() == d0 + 126 &&
+              input_dropped() == drops0 + 2,
+              "one-slot boundary refuses the packet AS A UNIT (+2 dropped)");
+        for (;;) {
+            int g = input_pull(ev, 16);
+            if (!g) break;
+            if (total && ev[0].seq != lastseq + 1) mono2 = 0;
+            lastseq = ev[g - 1].seq;             /* batch's LAST event   */
+            total += g;
+            for (int i = 0; i < g; ++i)
+                if (ev[i].type == IN_EVT_RELX || ev[i].type == IN_EVT_RELY)
+                    ++rels;
+        }
+        input_push_rel((i16)1, (i16)2);          /* recovery: it fits now */
+        int pr = input_pull(ev, 2);
+        check(total == 126 && rels == 0 && pr == 2 &&
+              ev[0].type == IN_EVT_RELX && ev[1].type == IN_EVT_RELY && mono2,
+              "no half pair in ring; seq intact; full pair passes again");
+    }
+
     /* ABI shape locked: 8 bytes, and the trap types never move */
     check(sizeof(struct input_event) == 8, "input_event is 8 bytes");
     check(IN_EVT_KEY == 1 && IN_EVT_RELX == 2 && IN_EVT_RELY == 3 &&

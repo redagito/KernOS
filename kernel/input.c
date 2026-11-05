@@ -41,6 +41,17 @@ void input_push_key(char c)
 
 void input_push_rel(i16 dx, i16 dy)
 {
+    /* M5.10: a packet is TWO ordered events (the ABI doc says so, so
+       the ring must honor it unconditionally). The old code emitted
+       RELX then RELY with independent room checks - at a one-slot
+       boundary the pair got split (RELY silently swallowed, dropped
+       +=1, next packet's RELX read as a fresh pair). Reserve BOTH
+       slots up front: refuse the packet as a unit or emit both. */
+    u8 free = (u8)(IN_RING_SIZE - 1 - ((head - tail) & (IN_RING_SIZE - 1)));
+    if (free < 2) {
+        dropped += 2;                     /* whole packet refused       */
+        return;
+    }
     emit(IN_EVT_RELX, 0, dx);
     emit(IN_EVT_RELY, 0, dy);
 }

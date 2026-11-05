@@ -80,7 +80,15 @@
     .set DISPI_YRES,     2
     .set DISPI_BPP,      3
     .set DISPI_ENABLE,   4
-    .set DISPI_VWIDTH,   7
+    /* M5.14: VIRT_WIDTH is 6, VIRT_HEIGHT is 7 - and 7 is READ-ONLY.
+       This used to say 7: the "virtual width" write silently no-op'd
+       (QEMU's write switch ignores index 7), and the pitch only became
+       xres*4 by QEMU's enable-time fixup (virt width < xres -> xres).
+       Found only when the M5.14 read-back refused 0x1003 - the echo of
+       a post-fixup VIRT_HEIGHT, a register we never drove. The card
+       was never told its virtual width; we were lucky, not right. */
+    .set DISPI_VWIDTH,   6
+    .set DISPI_VHEIGHT,  7
     .set DISPI_ENABLED,  0x01
     .set DISPI_LFB,      0x40
     .set FB_W,           1024       /* deterministic budget: 1024x768x32 */
@@ -250,6 +258,13 @@ pci_dev_next:
     inl  %dx, %eax
     testl %eax, %eax
     jz   pci_dev_advance
+    /* M5.14 (round-four review, S5 boundary hardening): bit 0 set =
+       I/O-space BAR - the dword was never a physical address, and
+       masking it off below would fabricate a plausible-but-wrong base
+       the kernel would then map and write. Refuse: this is a display
+       device, not OUR display device - advance the walk. */
+    testl $0x1, %eax
+    jne  pci_dev_advance
     andl $0xFFFFFF00, %eax             /* 32-bit mem BAR: low byte flags */
     jmp  dispi_have_phys
 pci_dev_advance:
@@ -333,6 +348,17 @@ dispi_have_phys:
     movw $DISPI_DATA, %dx
     inw %dx, %ax
     cmpw $32, %ax
+    jne dispi_refuse
+    /* M5.14 (round-four review, S5): the fourth read - VWIDTH is the
+       register the HANDOFF's pitch arithmetic rests on (pitch =
+       xres*4 *assumes* virt width == xres) and it was the only
+       geometry write never read back. */
+    movw $DISPI_INDEX, %dx
+    movw $DISPI_VWIDTH, %ax
+    outw %ax, %dx
+    movw $DISPI_DATA, %dx
+    inw %dx, %ax
+    cmpw $FB_W, %ax
     jne dispi_refuse
     jmp dispi_handoff
 

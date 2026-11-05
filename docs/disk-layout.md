@@ -182,7 +182,7 @@ self-audits at build time.
 |------------------|--------------------------------------------------|
 | Capacity         | 128 MiB = 262144 × 512 B                          |
 | Geometry         | bytes/sector 512, spc 1, reserved 32, 2 FATs      |
-| FAT size         | 2017 sectors (fixpoint of 4 × (clusters + 2))     |
+| FAT size         | 2017 sectors (mkfat32 fixpoint: `want = ceil((clusters+2)*4/512)` re-derived from `fat_secs` until it stops moving, seeded 2048) |
 | Data start       | LBA 4066 = cluster 2                              |
 | Clusters         | 258078 ( > 65524: genuinely FAT32, not FAT16)     |
 | Root directory   | cluster 2                                         |
@@ -196,13 +196,17 @@ Root directory order is a deliberate parse obstacle course, in order:
 | 2    | `VERYLO~1TXT` short entry of the LFN pair        |
 | 3    | `0xE5` deleted-entry decoy (must be skipped)     |
 | 4    | `KERNOS.TXT` (short 8.3)                         |
-| 5+   | `0x00` terminator                                |
+| 5    | `U1.ELF` (short 8.3, program fixtures start here: u1 chain first, then shell) |
+| 6    | `SHELL.ELF` (short 8.3)                          |
+| 7+   | `0x00` terminator                                |
 
 File bodies: cluster 3 = `BENCH_SEED` (KERNOS.TXT, 47 B), cluster 4 =
-`BENCH_LONG_BODY` (VERYLONGNAME.TXT, 24 B). Raw AHCI markers sit in the
+`BENCH_LONG_BODY` (VERYLONGNAME.TXT, 24 B); the PROGRAMS start at
+cluster 5 (u1 chain, then the shell chain — slots 5/6 above). Raw AHCI
+markers sit in the
 **unallocated data area**, asserted collision-free by the planter:
-LBA 4076 (`BENCH_MARKER_LBA`) carries `KERNOSDISK\1\2\3` (read-only
-match), LBA 4084 (`BENCH_WRITE_LBA`) is the write-verify target.
+LBA 4106 (`BENCH_MARKER_LBA`) carries `KERNOSDISK\1\2\3` (read-only
+match), LBA 4114 (`BENCH_WRITE_LBA`) is the write-verify target.
 
 M4.3 FAT32 behavior contract (what the gates assert): mount validates a
 real FAT32 BPB (spc power of two, cluster count in the FAT32 range);

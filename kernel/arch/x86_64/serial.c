@@ -29,9 +29,16 @@ static inline u8 in8(u16 port)
 
 void serial_init(void)
 {
+    /* COM1 at 115200: divisor 1 of the 115200 base clock. M5.10: this
+       must MATCH the boot chain - stage2.s already programs the same
+       divisor ("COM1 init ... like the kernel will do"), and a kernel
+       that re-programmed a DIFFERENT rate (the old divisor 3 = 38400)
+       would garble every byte after phase 'K' on real hardware.
+       QEMU's emulated UART ignores the divisor, which is why the
+       drift was invisible in every gate. */
     out8(UART_INTERRUPT, 0x00);            /* disable UART IRQs for now */
     out8(UART_LINE_CTRL, UART_DLAB);       /* enable divisor latch      */
-    out8(UART_DATA,      0x03);            /* divisor 3 of 115200 -> 38400 baud */
+    out8(UART_DATA,      0x01);            /* divisor 1: 115200 baud    */
     out8(UART_INTERRUPT, 0x00);
     out8(UART_LINE_CTRL, 0x03);            /* 8 data bits, no parity, 1 stop */
     out8(UART_FIFO,      0xC7);            /* FIFO on, clear, 14-byte threshold */

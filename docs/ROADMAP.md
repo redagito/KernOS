@@ -288,6 +288,72 @@ as listed below.
   owned by the build graph; evidence identity is owned by REQUIRED
   named cues and byte-exact binds — never by the absence of a
   failure.
+- **M5.10 — the repair milestone: the blind review's confirmed findings
+  (locked 2026-11-05)**
+  An independent reviewer read the whole tree cold (no context beyond
+  the sources, docker for the host suite only); every High/proven
+  claim was then re-verified line-by-line before acting, and one
+  verdict was corrected (F1's "own-wake hang" — the old park loop was
+  one-shot, the real defect was the stale in-place return). What
+  shipped, one gated commit each:
+  1. sched_block rewritten (512f024): T_WAITING now means "not on any
+     CPU" in a provable way — the park loop is real (rescan both exits
+     at every un-hlt), own-wake resumes in place and HEALS the record
+     (old code returned in place still tagged T_WAITING with the waitq
+     armed), both resume paths clear the spent wake. The no-peers
+     iteration is yet unreachable (main stays the idle carrier) —
+     stated as a named absence, not a claim.
+  2. The spawn front door (5744e6e): name[13] with real 8.1 rules —
+     suffix names valid iff the stem fits 8, bare stems suffixed iff
+     they fit 8, everything else REFUSED (the old 7-char copy made
+     `run shell.elf` look up SHELL.E.ELF and refuse-lied; 8-char stems
+     silently truncated); printf clamps vsnprintf's would-be length to
+     cap-1 (no stack bytes, no stray NUL, on the wire); failed spawns
+     release every ledger frame via frames_release at all five failure
+     points (the "NOTHING left behind" contract was aspirational).
+     Discriminating probe: `run shell.elf` typed key-by-key now spawns
+     a second shell (pre-fix: refusal); typed `run u1.elf` rides the
+     driver's new -Run probe freedom with RequireCues.
+  3. stage2 zeroes the boot-table tails (402b175): PML4[1..511] and
+     PDPT[1..511] are now defined-zero, not RAM-WAS; a named kernel
+     check ("page: boot tables clean") holds stage2 to it on every
+     boot, so a kernel booted without the loop names the regression.
+     This was the QEMU-zeroed-RAM class: user CR3s inherit all 512
+     entries and user_ptr_ok walks them.
+  4. Dead-code sweep (9735c8f): .userprog linker recipe, kbd_getc,
+     ahci_info, pci_find_class, console_on_fbcon, fb_bpp, the
+     orphaned tools/ppmtext.c, a duplicated Makefile define and a
+     duplicated comment — 88 deletions, zero behavior change
+     (kchk moved because the link script did, which is the proof).
+  5. Input packets are atomic pairs (05f9b67): a mouse packet is
+     refused AS A UNIT at a one-slot boundary (dropped += 2), never
+     emitted as a half pair; two discriminator tests drive it to the
+     exact boundary on host. The gate found a REAL harness lie doing
+     it: Makefile's hosttest ran test_input/test_font as recipe
+     commands WITHOUT prerequisites — the input suite had been
+     executing a stale Nov 4 binary all milestone. The honest ledger
+     is 112 checks / 0 failures (30/24/21/12/25), not the "108" the
+     stale binary kept printing.
+  6. Docs truth (this commit): disk-layout cross-check repaired —
+     bench LBAs 4106/4114 (doc said 4076/4084, an M5.3 +/-6 carve-out
+     that never propagated), the root-dir table now lists the program
+     slots (5=U1.ELF, 6=SHELL.ELF, 7=terminator — "5+ 0x00" was
+     stale) and the FAT-size line describes mkfat32's actual fixpoint
+     shape; serial_init takes divisor 1 (115200) to MATCH the boot
+     chain (the old divisor 3 = 38400 was invisible to every gate,
+     QEMU ignores the divisor; stage2 already said "like the kernel
+     will do" while the kernel did not).
+  Recorded unchanged, by design: F3 (a user #PF dump-and-parks the
+  machine) is deferred to its OWN next milestone — user fault kills
+  the process, the machine lives; it needs a kill path plus negative
+  controls, and M6's GUI userland wants it first (Gates will provide
+  the halting evidence). F9 (exit ledger keyed by reusable tid) stays
+  logged: cannot fire until slots recycle under an uncollected child;
+  the collect path will re-key by (tid, generation) when a real
+  orphan producer exists. The reviewer's structural verdict stands
+  and becomes doctrine: the scheduler's wake/park code is the least-
+  defended region of the tree — its state machine (record vs CPU)
+  gets written down BEFORE M6 adds threads to GUI.
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

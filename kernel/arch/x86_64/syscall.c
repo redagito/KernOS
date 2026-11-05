@@ -178,7 +178,7 @@ void syscall_dispatch(struct trapframe *tf)
            Single static staging buffer: the gate serializes spawns
            (one dispatcher, IF off) - documented v0 constraint. */
         const u8 *p = (const u8 *)tf->rdi;
-        char name[12];
+        char name[13];                /* 8 stem + '.ELF' + NUL - 8.1's   */
         u64 nlen = 0;
 
         if (p == 0) {
@@ -188,7 +188,7 @@ void syscall_dispatch(struct trapframe *tf)
         /* copy the name through validated user memory, byte at a time
            (each byte's page re-checked; a shorter buffer cannot fault
            what we never touch) */
-        while (nlen < sizeof name - 5) {
+        while (nlen < sizeof name - 1) {
             if ((tf->cs & 3) == 3 && !user_ptr_ok((u64)(p + nlen), 1)) {
                 p = 0;
                 break;
@@ -202,15 +202,28 @@ void syscall_dispatch(struct trapframe *tf)
             r = (u64)SYS_EINVAL;
             break;
         }
-        /* programs live as 8.3 names with the .ELF suffix; the user
-           types the stem ("run u1") and the gate completes it */
-        if (nlen < 4 ||
-            (name[nlen-4] | 0x20) != '.' || (name[nlen-3] | 0x20) != 'e' ||
-            (name[nlen-2] | 0x20) != 'l' || (name[nlen-1] | 0x20) != 'f') {
+        /* M5.10: honor the documented 8.1 shape exactly. A name that
+           carries its own suffix is valid only when the stem fits 8
+           ("shell.elf" is 9 chars; the old 7-char copy made this
+           resolve SHELL.E.ELF and refuse as a missing file). A bare
+           stem gets the suffix only if it fits 8 (the old bound cut
+           8-char stems silently). Anything else: refused - the gate
+           never invents an 8.3 name the user did not say. */
+        if (nlen >= 4 &&
+            (name[nlen-4] | 0x20) == '.' && (name[nlen-3] | 0x20) == 'e' &&
+            (name[nlen-2] | 0x20) == 'l' && (name[nlen-1] | 0x20) == 'f') {
+            if (nlen - 4 > 8) {       /* stem over 8: not 8.3, refuse   */
+                r = (u64)SYS_EINVAL;
+                break;
+            }
+        } else if (nlen <= 8) {
             name[nlen++] = '.';
             name[nlen++] = 'E';
             name[nlen++] = 'L';
             name[nlen++] = 'F';
+        } else {                      /* bare stem of 9+: nothing to say */
+            r = (u64)SYS_EINVAL;
+            break;
         }
         name[nlen] = '\0';
 

@@ -9,7 +9,7 @@
 #
 # Script of the positive M5.5 gate:
 #   1. wait  "ksh: kernos shell ready"  -> shell parked in READ
-#   2. type  "run u1"                   -> spawn/wait/exit round-trip
+#   2. type  $Run (default "run u1")    -> spawn/wait/exit round-trip
 #   3. wait  "exited code="             -> child collected by WAIT
 #   4. type  "exit"                     -> shell exits; main joins it
 #   5. wait  "gate5: shell exited code=0"
@@ -19,6 +19,11 @@
 # must exist in serial.log before the run can exit 0 - the round-trip
 # cues alone are satisfiable by a userland that never gained the
 # observatory phase (and the M6.1 gate run caught exactly that lie).
+# M5.10: -Run lets a probe choose the typed line (default unchanged),
+# e.g. "run u1.elf" exercises the gate's WITH-suffix spawn path; any
+# refusal leaves the script's "exited code=" cue waiting forever, so
+# refusal probes run against a freshly booted QEMU WITHOUT this
+# driver and read the "run refused" line off serial.log directly.
 #
 # Discipline learned on the first run: every cue-report is Write-Host
 # (console stream), NEVER Write-Output - the wait function's return
@@ -35,7 +40,9 @@ param(
     # every cue fired, so the distinguishing evidence was never
     # required. A cue the gate does not REQUIRE is not evidence; it
     # is decoration. All require-cues land before the exit cue.)
-    [string[]]$RequireCues = @()
+    [string[]]$RequireCues = @(),
+    # The typed line (M5.10 probe freedom; default = the M5.5 script).
+    [string]$Run = "run u1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -76,7 +83,9 @@ function Send-Monitor([string]$line) {
 
 function Type-Line([string]$text) {
     foreach ($ch in $text.ToCharArray()) {
-        $key = if ($ch -eq ' ') { 'spc' } else { [string]$ch }
+        $key = if ($ch -eq ' ') { 'spc' }
+               elseif ($ch -eq '.') { 'dot' }   # QEMU names the period
+               else { [string]$ch }
         Send-Monitor ("sendkey " + $key)
     }
     Send-Monitor "sendkey ret"
@@ -94,7 +103,7 @@ $stream = $c.GetStream()
 
 $ok = $true
 $w1 = Wait-Serial "ksh: kernos shell ready" $MaxWaitBootSec
-if ($w1) { Type-Line "run u1" }
+if ($w1) { Type-Line $Run }
 $ok = $ok -and $w1
 
 $w2 = Wait-Serial "exited code=" $MaxWaitBootSec

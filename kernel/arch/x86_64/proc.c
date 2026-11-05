@@ -39,8 +39,7 @@ void proc_space_destroy(const u64 *frames, int nframes)
     console_puts("\n");
 }
 
-/* Copy one segment's file bytes into the allocated span pages.
-   pages[i] is the PA of span page i (span_lo = its first VA). */
+/* Copy one segment's file bytes into the allocated span pages. */
 static void copy_segment(const u8 *file_buf, const struct elf_seg *s,
                          u64 span_lo, const u64 *pages)
 {
@@ -59,6 +58,16 @@ static void copy_segment(const u8 *file_buf, const struct elf_seg *s,
             ((volatile u8 *)dst)[i] = src[i];
         copied += chunk;
     }
+}
+
+/* Give the ledger pages back on a failed build (M5.10: refusals
+   leave NOTHING left behind - docs/syscall-abi.md makes that the
+   contract; the old code committed *nframes only on success, so an
+   exhausted pmm mid-build silently leaked every allocated frame). */
+static void frames_release(u64 *frames, int nf)
+{
+    while (nf > 0)
+        pmm_free(frames[--nf]);
 }
 
 u64 proc_build_space_elf(const void *elf, u64 elf_len,
@@ -119,7 +128,7 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
         pml4v[i] = boot_pml4[i];          /* share the whole boot map  */
 
     u64 pdptc = pmm_alloc();
-    if (!pdptc) return 0;
+    if (!pdptc) { frames_release(frames, nf); return 0; }
     frames[nf++] = pdptc;
     zero_frame(pdptc);
     u64 *pdptv = (u64 *)pdptc;
@@ -127,7 +136,7 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
         pdptv[i] = boot_pdpt[i];
 
     u64 pdc = pmm_alloc();
-    if (!pdc) return 0;
+    if (!pdc) { frames_release(frames, nf); return 0; }
     frames[nf++] = pdc;
     zero_frame(pdc);
     u64 *pdv = (u64 *)pdc;
@@ -135,7 +144,7 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
         pdv[i] = boot_pd[i];
 
     u64 pt = pmm_alloc();
-    if (!pt) return 0;
+    if (!pt) { frames_release(frames, nf); return 0; }
     frames[nf++] = pt;
     zero_frame(pt);
     u64 *ptv = (u64 *)pt;
@@ -147,7 +156,7 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
     /* ---- span pages: zero-allocated, mapped, then bytes copied ---- */
     for (u64 p = 0; p < span_pages; ++p) {
         u64 pa = pmm_alloc();
-        if (!pa) return 0;
+        if (!pa) { frames_release(frames, nf); return 0; }
         frames[nf++] = pa;
         zero_frame(pa);
         ptv[((span_lo >> 12) + p) & 0x1FF] = pa | 0x07;
@@ -161,7 +170,7 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
        0x5FC+; the #DF dump named the push and it is now a comment). */
     for (u64 spg = 0; spg < USER_STACK_SZ / 4096; ++spg) {
         u64 pa = pmm_alloc();
-        if (!pa) return 0;
+        if (!pa) { frames_release(frames, nf); return 0; }
         frames[nf++] = pa;
         zero_frame(pa);
         ptv[0x1FC + spg] = pa | 0x07;

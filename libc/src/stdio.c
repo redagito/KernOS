@@ -19,6 +19,15 @@ int printf(const char *fmt, ...)
     va_start(ap, fmt);
     int n = vsnprintf(buf, sizeof buf, fmt, ap);
     va_end(ap);
+    /* vsnprintf returns the WOULD-BE length; the gate may only be fed
+       bytes that exist in buf (M5.10: a longer format used to transmit
+       past-the-buffer stack bytes - clamp to the buffer, by contract).
+       Valid data is 0..cap-2 (the formatter parks its NUL at cap-1), so
+       the ceiling is cap-1: no NUL byte ever rides the wire. Longer
+       output needs a buffer the caller owns (snprintf + write), not
+       this clamp's silent cutting. */
+    if (n > (int)sizeof buf - 1)
+        n = (int)sizeof buf - 1;
     write(STDOUT_FILENO, buf, (size_t)n);  /* return = formatter length */
     return n;
 }

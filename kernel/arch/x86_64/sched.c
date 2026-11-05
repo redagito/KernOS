@@ -39,9 +39,24 @@ static u64 switches;
 
 /* Child-exit ledger (M5.5): indexed by tid - the permanent small-int
    namespace. A slot can be FREE again while its exit result is still
-   uncollected: the exit tables outlive the thread record. */
+   uncollected. M5.11 (round-two review, H1): collect keys on
+   threads[i].ppid / lived-in-a-reused-slot - the spawn claiming the
+   slot again must RECLAIM the record (ledger_reclaim, below); reuse
+   forfeits the uncollected result, wait(2)-style - the parent had
+   its chance, and the stale bit must never land on the new tenant
+   (the old shape let a parent's NEXT wait() answer with the LAST
+   child's exit code before the new child had even run). */
 static u8  exited[MAX_THREADS];
 static u64 exit_codes[MAX_THREADS];
+
+/* M5.11: claim-time discipline for one slot: whosever result was
+   still parked there is forfeited - the namespace slot is the only
+   identity the ledger keeps. */
+static void ledger_reclaim(int i)
+{
+    exited[i]      = 0;
+    exit_codes[i]  = 0;
+}
 
 static u8 kstacks[MAX_THREADS - 1][KSTACK_SZ] __attribute__((aligned(16)));
 
@@ -107,6 +122,9 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
         console_puts("sched: spawn failed, no free slot\n");
         return -1;
     }
+    ledger_reclaim(i);      /* M5.11: an uncollected dead result in a
+                               recycled slot is forfeited, never adopted
+                               by the new tenant */
     struct thread *t = &threads[i];
     t->id    = i;
     t->name  = name;
@@ -131,6 +149,9 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
         console_puts("sched: spawn-user failed, no free slot\n");
         return -1;
     }
+    ledger_reclaim(i);      /* M5.11: same claim discipline as
+                               thread_spawn - both publishes go
+                               through it */
 
     struct thread *t = &threads[i];
     t->nframes = 0;                  /* ledger starts empty            */
@@ -222,7 +243,8 @@ void sched_exit_now(u64 exit_code)
     from->state = T_ZOMBIE;
 
     /* Remember the result for whoever waits on this tid (the tables
-       outlive the slot), and let a parent blocked in WAIT/join see it. */
+       outlive the slot only until a spawn claims it again - ledger
+       reclaim, M5.11), and let a parent blocked in WAIT/join see it. */
     exited[from->id]     = 1;
     exit_codes[from->id] = exit_code;
     sched_wake_all(SCHED_WQ_CHILD);
@@ -385,10 +407,54 @@ int sched_any_children(void)
     if (me < 0)
         return 0;
     for (int i = 0; i < MAX_THREADS; ++i) {
-        /* live child, or a FREE slot whose result is uncollected: the
-           exit tables keep both visible after the record is reused. */
+        /* live child, or a freed-but-not-yet-claimed slot whose
+           result is uncollected: the tables keep the record visible
+           until the slot is claimed again - a claim RECLAIMS it. */
         if (threads[i].ppid == me && (threads[i].state != T_FREE || exited[i]))
             return 1;
     }
     return 0;
+}
+
+/* M5.11: permanent named boot evidence for ledger_reclaim. The check
+   fabricates a dead child's uncollected record in the very slot the
+   next spawn will claim (find_free_slot is deterministic here), then
+   spawns a real kernel thread and verifies the claim cleared the
+   record - if spawns do NOT reclaim, the stale bit would answer a
+   future wait() with a dead child's code for a child that has not
+   even run. */
+static void ledger_probe_entry(void *a)
+{
+    (void)a;                       /* never actually runs: demoted below */
+    for (;;)
+        __asm__ volatile("hlt");
+}
+
+int sched_ledger_boot_check(void)
+{
+    u64 efl;
+    __asm__ volatile("pushfq\n\tpop %0" : "=r"(efl));
+    __asm__ volatile("cli");       /* the probe must never run */
+
+    int i = find_free_slot();
+    int ok = 1;
+    if (i < 0) {
+        ok = 0;                    /* no free slot at boot: unexpected */
+    } else {
+        exited[i]      = 1;        /* a dead child's forfeitable record */
+        exit_codes[i]  = 0xFEEDFACE;
+        int tid = thread_spawn("ledger-probe", ledger_probe_entry, 0);
+        if (tid != i) {
+            ok = 0;                /* claim determinism broken */
+        } else if (exited[i] || exit_codes[i]) {
+            ok = 0;                /* the claim did NOT reclaim the slot */
+        }
+        threads[i].state = T_FREE; /* demote before it ever runs */
+    }
+
+    console_puts(ok ? "sched: ledger reuse ok at claim\n"
+                    : "sched: LEDGER REUSE FAIL (spawn kept a dead result)\n");
+
+    __asm__ volatile("push %0\n\tpopfq" :: "r"(efl));
+    return ok ? 0 : -1;
 }

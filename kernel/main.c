@@ -573,6 +573,11 @@ void kernel_main(void)
                                            : "syscall: unknown nr NOT refused\n");
     }
 
+    /* M5.11: the exit ledger answers for its slot-reuse discipline at
+       boot - permanent named evidence in the M5.10 check style. */
+    if (sched_ledger_boot_check() != 0)
+        console_puts("main: ledger boot check FAILED\n");
+
     /* M5.5: the shell becomes what the OS runs first. main.c reads it
        from the FAT fixture, spawns it, and JOINS its tid (the kernel
        thread cannot go through the gate, so join is a kernel-side

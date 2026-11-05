@@ -66,6 +66,12 @@ int  sched_join(int tid);
 int  sched_collect_child(u64 *code);   /* 1 + one child's code consumed */
 int  sched_any_children(void);         /* any live/uncollected child?   */
 
+/* M5.11: permanent named boot evidence for the ledger's slot-reuse
+   discipline - a dead child's uncollected record is forfeited when a
+   spawn claims the slot again (wait(2)-style). Prints
+   "sched: ledger reuse ok at claim" or a FAIL line; 0 = ok. */
+int  sched_ledger_boot_check(void);
+
 u64  sched_switches(void);
 
 /* Thread id of the calling thread (v0 syscall ABI: pid == tid). */

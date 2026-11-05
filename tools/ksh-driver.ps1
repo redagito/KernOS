@@ -113,8 +113,26 @@ $ok = $ok -and $w2
 $w3 = Wait-Serial "gate5: shell exited code=0" (2 * $MaxWaitBootSec)
 $ok = $ok -and $w3
 
+# M6.4 lesson (measured): on a red, this loop used to burn 2*150s per
+# missing require-cue, sequentially - one failing cue cost 5+ minutes
+# of dead wait per debug cycle (measured twice today). The gate is
+# ALREADY failed the moment one cue times out; nothing that follows
+# can turn it green, so report the unmatched remainder and exit now.
 foreach ($cue in $RequireCues) {
-    $ok = $ok -and (Wait-Serial $cue (2 * $MaxWaitBootSec))
+    if (-not (Wait-Serial $cue (2 * $MaxWaitBootSec))) {
+        Write-Host "  remaining unmatched require-cues:"
+        $seen = @{}
+        foreach ($c2 in $RequireCues) {
+            if ($c2 -ne $cue -and -not $seen[$c2] -and
+                -not ((Test-Path $SerialLog) -and
+                (Select-String -Path $SerialLog -Pattern ([regex]::Escape($c2)) -Quiet))) {
+                Write-Host ("    - " + $c2); $seen[$c2] = $true
+            }
+        }
+        $c.Close()
+        Write-Host "GATE55-POSITIVE: FAILED"
+        exit 1
+    }
 }
 
 $c.Close()

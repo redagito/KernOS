@@ -132,11 +132,36 @@ static int pf_handler(struct trapframe *tf)
     return 1;                            /* fixed: isr.s will iretq, retry */
 }
 
+/* The stage-2 boot tables are the shared skeleton of every user CR3
+   (proc.c copies all 512 PML4 entries + PDPT[1..511]). M5.10: stage2
+   zeroes the tails it does not build; this check holds the kernel to
+   it - a kernel image booted WITHOUT the stage2 tail-zeroing would
+   walk whatever RAM junk sat in those slots (QEMU-zeroed today, live
+   garbage on real hardware). */
+void pf_boot_tables_check(void)
+{
+    u64 *pml4 = (u64 *)(cr3_read() & ~0xFFFULL);
+    u64 *pdpt = (u64 *)(pml4[0] & ~0xFFFULL);
+    u64 dirty = 0;
+
+    for (int i = 1; i < 512; ++i) {
+        if (pml4[i])
+            dirty++;
+        if (pdpt[i])
+            dirty++;
+    }
+    console_puts("page: boot tables clean (PML4/PDPT tails zeroed)");
+    if (dirty)
+        console_puts(" - DIRTY, stage2 tail-zeroing missing");
+    console_puts("\n");
+}
+
 void pf_init(void)
 {
     stat_faults = stat_pd = stat_pt = stat_data = 0;
     exc_set_handler(14, pf_handler);
     console_puts("pf: demand pager armed\n");
+    pf_boot_tables_check();
 }
 
 void pf_stats(u64 *faults, u64 *pd_pages, u64 *pt_pages, u64 *data_pages)

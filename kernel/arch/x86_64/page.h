@@ -15,6 +15,7 @@
 #define PAGE_DEMAND_SPAN  (128 * 1024 * 1024)  /* 128 MiB */
 
 void pf_init(void);   /* register the #PF handler */
+void pf_boot_tables_check(void);  /* M5.10: stage2 zeroed the tails?  */
 
 /* Map a 4 KiB page on demand at va (any pa from the pmm). The #PF
    handler runs this per fault; kmalloc uses it while bumping into

@@ -612,6 +612,30 @@ build_pd:
     cmpl $512, %ecx
     jne build_pd
 
+    /* M5.10 (blind review F4): zero the table TAILS. The builder sets
+       only entry 0 of PML4 and PDPT; the rest of those two pages is
+       whatever RAM held - and every user CR3 (proc.c) copies all 512
+       PML4 + PDPT entries, which user_ptr_ok then WALKS for any user
+       VA >= 512 GiB. On QEMU RAM is zeroed so the junk was benign;
+       on real hardware a junk P|U entry names a garbage PA and the
+       gate dereferences it. Zero both tails, 8 bytes per entry. */
+    movl $PT_PML4 + 8, %edi
+    movl $511, %ecx                    /* entries 1..511               */
+zero_pml4_tail:
+    movl %eax, (%edi)                  /* %eax is still 0 from build_pd  */
+    movl %eax, 4(%edi)
+    addl $8, %edi
+    decl %ecx
+    jnz zero_pml4_tail
+    movl $PT_PDPT + 8, %edi
+    movl $511, %ecx
+zero_pdpt_tail:
+    movl %eax, (%edi)
+    movl %eax, 4(%edi)
+    addl $8, %edi
+    decl %ecx
+    jnz zero_pdpt_tail
+
     /* CR4.PAE before CR3 (PAE paging must be enabled to interpret PML4) */
     movl %cr4, %eax
     orl $0x20, %eax

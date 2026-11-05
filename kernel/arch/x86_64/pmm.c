@@ -19,8 +19,21 @@ static u64 kernel_limit;            /* frames below this are boot/kernel */
 
 /* In-stack marker: bit = free_stack currently holds that frame. Turns
    double-free detection O(1); the tracked range begins at
-   kernel_limit and is frame-contiguous, so index math is direct. */
+   kernel_limit and is frame-contiguous, so index math is direct.
+
+   M5.11 (round-two review, M2): the marker was honest ONLY for frames
+   that had been freed at least once - init pushed the whole initial
+   stack with bits CLEAR, so a free of any frame still sitting on the
+   stack passed the guard and re-pushed a duplicate (two allocations
+   later, two callers aliased one frame), hole frames (unusable RAM,
+   e.g. MMIO) were adoptable as "freed", and a pa past the tracked
+   universe had NO check at all - it indexed past this very bitmap.
+   Discipline now: init sets BOTH bits on every pushed frame (seen
+   marks universe membership and stays set for the frame's lifetime),
+   alloc clears in_stack, free refuses anything the universe never
+   contained or that is already back on the stack. */
 static u32 in_stack[PMM_MAX_FRAMES / 32];
+static u32 in_universe[PMM_MAX_FRAMES / 32];
 
 /* Linker symbols (kernel.ld) */
 extern u8 __bss_end[];
@@ -49,7 +62,18 @@ void pmm_init(void)
         if (end <= start) continue;
 
         for (u64 f = start; f + FRAME_SIZE <= end; f += FRAME_SIZE) {
+            u64 idx = (f - kernel_limit) / FRAME_SIZE;
+            /* M5.11: a sparse map (large non-usable hole) walks f past
+               the universe while top is still small - top==cap never
+               fires, and the old code indexed in_stack[] with an idx
+               no bitmap table covers. Drop the rest of such runs. */
+            if (idx >= PMM_MAX_FRAMES) {
+                console_puts("pmm: frames past universe dropped\n");
+                break;
+            }
             if (top == PMM_MAX_FRAMES) break;    /* table full, drop rest */
+            in_stack[idx / 32]    |= 1u << (idx % 32);
+            in_universe[idx / 32] |= 1u << (idx % 32);
             free_stack[top++] = f;
         }
         if (top == PMM_MAX_FRAMES) break;
@@ -77,8 +101,24 @@ void pmm_free(u64 pa)
         console_puts("\n");
         return;
     }
-    if (top == PMM_MAX_FRAMES) return;           /* cannot happen: balanced */
     u64 idx = (pa - kernel_limit) / FRAME_SIZE;
+    if (idx >= PMM_MAX_FRAMES) {
+        /* M5.11: the old code indexed in_stack[] with ANY aligned pa
+           INSIDE the universe only by luck bounds - everything past
+           the last tracked frame read/wrote past this bitmap. */
+        console_puts("pmm: refuse free past universe ");
+        console_puts_hex(pa);
+        console_puts("\n");
+        return;
+    }
+    if (!(in_universe[idx / 32] & (1u << (idx % 32)))) {
+        /* hole frame: not in any type-1 run, adoptable no longer  */
+        console_puts("pmm: refuse untracked free ");
+        console_puts_hex(pa);
+        console_puts("\n");
+        return;
+    }
+    if (top == PMM_MAX_FRAMES) return;           /* cannot happen: balanced */
     if (in_stack[idx / 32] & (1u << (idx % 32))) {
         console_puts("pmm: double free ");
         console_puts_hex(pa);

@@ -160,12 +160,14 @@ $(BUILD)/test_elf64: tests/test_elf64.c kernel/elf64.c \
 # makes any recipe/flag change rebuild the test binaries.
 hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_format $(BUILD)/test_font $(BUILD)/test_input \
+	$(BUILD)/test_pmm \
 	$(BUILD)/font.psf2 $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
 	$(BUILD)/test_format
 	$(BUILD)/test_font $(BUILD)/font.psf2
 	$(BUILD)/test_input
+	$(BUILD)/test_pmm
 
 # vsnprintf is libc's one portable-holy module: it answers for itself
 # on the host, so the boot gate never has to prove formatting.
@@ -186,6 +188,17 @@ $(BUILD)/test_input: tests/test_input.c kernel/input.c \
 		include/kernel/input.h include/kernel/types.h $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_input.c kernel/input.c
+
+# The frame stack answers for itself on the host: the KERNEL OBJECT
+# compiles as-is over a stub E820 map and a stub __bss_end, so the
+# double-free blind spot on the initial stack and the unbounded-universe
+# free (both M5.11) are pinned by the suite, not by a boot gate.
+$(BUILD)/test_pmm: tests/test_pmm.c kernel/arch/x86_64/pmm.c \
+		kernel/arch/x86_64/pmm.h kernel/arch/x86_64/mem.h \
+		include/kernel/types.h $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel/arch/x86_64 -o $@ \
+		tests/test_pmm.c kernel/arch/x86_64/pmm.c
 
 # -----
 # Compilation

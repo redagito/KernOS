@@ -330,7 +330,7 @@ $(OBJ)/proc.o: kernel/arch/x86_64/proc.c kernel/arch/x86_64/proc.h
 UFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin -fno-stack-protector \
 	-fno-pie -fno-pic -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
 	-fno-asynchronous-unwind-tables -msoft-float \
-	-O2 -Wall -Wextra -I$(INC) -Ilibc/include
+	-O2 -Wall -Wextra -I$(INC) -Ilibc/include -MMD -MP
 
 LIBC_SRC := libc/src/crt0.c libc/src/format.c libc/src/stdio.c \
 	libc/src/string.c libc/src/stdlib.c libc/src/unistd.c
@@ -384,7 +384,10 @@ $(OBJ)/stage2.o: boot/stage2.s
 	@mkdir -p $(@D)
 	$(AS) --32 -o $@ $<
 
-# Header dependency files (KFLAGS uses -MMD -MP).
+# Header dependency files (KFLAGS and UFLAGS both use -MMD -MP; the
+# userland side paid for this omission in round four: a libc header
+# edit left every lc_*.o stale with all gates green - the image ships
+# the stale object and mkfat32 still says ok).
 -include $(OBJ)/*.d
 
 clean:

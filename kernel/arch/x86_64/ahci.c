@@ -229,7 +229,20 @@ void ahci_init(void)
 
     /* --- read test: LBA 0..7 (boot disk untouched; the test disk holds
        our marker at LBA 100), print the first bytes in full hex --- */
+    /* M5.12 (round-three review, F-2): pmm_alloc() answers 0 on
+       exhaustion - NEVER a frame - and ahci_read would happily take
+       PA 0 (its only check is page alignment): the test would DMA 8
+       boot sectors into the IVT/BDA territory below 1 MiB. Skip the
+       test if the allocator is empty (named absence, not a lie), and
+       return the frame on BOTH paths (the read-failure branch used
+       to leak it). Boot-red does not exist here: thousands of free
+       frames at this point make exhaustion unreachable today; the
+       guards are named tripwires, verified by walk of the code. */
     u64 rbuf = pmm_alloc();
+    if (!rbuf) {
+        console_puts("ahci: read test skipped - no frame (pmm empty)\n");
+        return;
+    }
     if (ahci_read(0, (void *)rbuf, 8) == 0) {
         volatile u8 *b = (volatile u8 *)rbuf;
         console_puts("ahci: read lba0-7 ok, bytes[0..3]=");
@@ -238,10 +251,10 @@ void ahci_init(void)
             console_putc("0123456789abcdef"[b[i] & 0xF]);
         }
         console_puts("\n");
-        pmm_free(rbuf);
     } else {
         console_puts("ahci: read test failed\n");
     }
+    pmm_free(rbuf);                      /* both paths return the frame */
 }
 
 int ahci_read(u64 lba, void *dma_buf, u32 sectors)

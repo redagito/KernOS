@@ -380,6 +380,47 @@ void kernel_main(void)
             }
         }
 
+        /* M6.2 utf8 at the glyph face: the console still feeds BYTES
+           (serial stays byte-transparent); fbcon turns them into
+           CODEPOINTS and then glyphs. Cursor is parked at the bottom
+           row's first cell here, so cell reads are deterministic:
+           (a) C3 B1 (U+00F1) paints ONE cell with the placeholder box
+           the font draws for undrawn Latin-1; (b) a truncated lead
+           recovers - "C3 then A" paints 'A' in the NEXT cell, not a
+           swallow; (c) E2 9C ?? (U+2713, beyond the font) paints the
+           same >=256 placeholder. All three compare against
+           fbcon_map_ink, the font's own count for the mapped glyph. */
+        {
+            u32 yb = (fbcon_rows() - 1) * 16;
+            u64 ink[3] = {0, 0, 0};
+            fbcon_puts("\xC3\xB1");        /* U+00F1: placeholder box   */
+            fbcon_puts("\xC3");            /* truncated lead, its own puts */
+            fbcon_puts("A");               /* re-fed: 'A' paints next cell */
+            fbcon_puts("\xE2\x9C\x93");    /* U+2713: >=256 placeholder */
+            for (u32 y = yb; y < yb + 16 && y < fb_height(); ++y) {
+                for (u32 x =  0; x <  8 && x < fb_width(); ++x)
+                    if (fb_pixel_get(x, y) == fbcon_fg()) ++ink[0];
+                for (u32 x =  8; x < 16 && x < fb_width(); ++x)
+                    if (fb_pixel_get(x, y) == fbcon_fg()) ++ink[1];
+                for (u32 x = 16; x < 24 && x < fb_width(); ++x)
+                    if (fb_pixel_get(x, y) == fbcon_fg()) ++ink[2];
+            }
+            if (ink[0] == fbcon_map_ink(0xF1) && ink[0] > 0 &&
+                ink[1] == fbcon_map_ink(0x41) && ink[1] > 0 &&
+                ink[2] == fbcon_map_ink(0x2713) && ink[2] > 0) {
+                console_puts("fbcon: utf8 echo ok\n");
+            } else {
+                console_puts("fbcon: utf8 echo FAILED inks: got ");
+                putdec(ink[0]); console_puts("/");
+                putdec(ink[1]); console_puts("/");
+                putdec(ink[2]);
+                console_puts(" want ");
+                putdec(fbcon_map_ink(0xF1)); console_puts("/");
+                putdec(fbcon_map_ink(0x41)); console_puts("/");
+                putdec(fbcon_map_ink(0x2713)); console_puts("\n");
+            }
+        }
+
         /* (2) the console takes the LFB as its face and keeps the
            mirrored log going: clear the screen, print the switch
            line, then count its ink - the first mirrored line IS the

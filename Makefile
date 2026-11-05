@@ -46,6 +46,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/pit.o \
 	$(OBJ)/kbd.o \
 	$(OBJ)/input_core.o \
+	$(OBJ)/utf8.o \
 	$(OBJ)/console.o \
 	$(OBJ)/mouse.o \
 	$(OBJ)/sched.o \
@@ -160,6 +161,7 @@ $(BUILD)/test_elf64: tests/test_elf64.c kernel/elf64.c \
 # makes any recipe/flag change rebuild the test binaries.
 hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_format $(BUILD)/test_font $(BUILD)/test_input \
+	$(BUILD)/test_utf8 \
 	$(BUILD)/test_pmm \
 	$(BUILD)/font.psf2 $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
@@ -167,6 +169,7 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_format
 	$(BUILD)/test_font $(BUILD)/font.psf2
 	$(BUILD)/test_input
+	$(BUILD)/test_utf8
 	$(BUILD)/test_pmm
 
 # vsnprintf is libc's one portable-holy module: it answers for itself
@@ -188,6 +191,13 @@ $(BUILD)/test_input: tests/test_input.c kernel/input.c \
 		include/kernel/input.h include/kernel/types.h $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
 	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_input.c kernel/input.c
+
+# The UTF-8 decoder answers for itself (M6.2): the exact kernel/utf8.c
+# the console compiles, driven through every refusal class on host.
+$(BUILD)/test_utf8: tests/test_utf8.c kernel/utf8.c include/kernel/utf8.h \
+		include/kernel/types.h $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -o $@ tests/test_utf8.c kernel/utf8.c
 
 # The frame stack answers for itself on the host: the KERNEL OBJECT
 # compiles as-is over a stub E820 map and a stub __bss_end, so the
@@ -242,6 +252,13 @@ $(OBJ)/kbd.o: kernel/arch/x86_64/kbd.c
 # The input event core is portable C (like fat32/elf64): the IRQ
 # handlers and syscall nr 7 run the same text the host tests compile.
 $(OBJ)/input_core.o: kernel/input.c include/kernel/input.h
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+# The UTF-8 decoder is portable C (M6.2, like input_core): the console
+# faces and the future terminal run the same text the host tests
+# compile - every overlong/surrogate/ceiling refusal is a host fact.
+$(OBJ)/utf8.o: kernel/utf8.c include/kernel/utf8.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

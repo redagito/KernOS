@@ -1,4 +1,5 @@
 #include <kernel/types.h>
+#include <kernel/utf8.h>
 #include "fbcon.h"
 #include "fb.h"
 
@@ -29,6 +30,7 @@ static const u32 *hdr;                        /* header words           */
 static const unsigned char *glyphs;           /* first glyph byte       */
 static u32 nglyphs, charsize, gw, gh;
 static u32 col, row, cols, rows;              /* cursor + screen in cells */
+static struct utf8_state u8st;                /* M6.2 byte decode acc    */
 static u64 scrolls;                           /* hard scroll counter    */
 static u32 fg = 0x00AAAAAA;                   /* light grey on black    */
 
@@ -71,16 +73,44 @@ int fbcon_init(void)
     if (cols == 0 || rows == 0) return -1;
     col = 0;
     row = 0;
+    utf8_reset(&u8st);
     return 0;
 }
 
-/* One glyph row: paint every pixel, fg where ink, bg where not. */
-static void draw_cell(u32 cx, u32 cy, unsigned char c)
+/* Ink count of the glyph a codepoint maps to - the read side of the
+   cell map, so the boot gate can compare a painted cell against the
+   font's own answer (M6.2). Must follow fbcon_init's validation. */
+u64 fbcon_map_ink(u32 cp)
+{
+    unsigned char c;
+    const unsigned char *g;
+    u32 r, x;
+    u64 ink = 0;
+
+    if (nglyphs == 0) return 0;
+    c = cp < nglyphs ? (unsigned char)cp : (unsigned char)255;
+    g = glyphs + (u32)c * charsize;
+    for (r = 0; r < gh; ++r) {
+        unsigned char bits = g[r];
+        for (x = 0; x < gw; ++x)
+            if (bits & (0x80 >> x)) ++ink;
+    }
+    return ink;
+}
+
+/* One glyph row: paint every pixel, fg where ink, bg where not.
+   The CELL MAP (M6.2): a decoded codepoint below the font's glyph
+   count paints its identity glyph (0..31 blank controls, 127..255
+   the "missing" boxes mkfont drew); anything above the font's
+   coverage paints glyph 255 - the placeholder box, VISIBLE honesty
+   for undrawn text, never a dropped or wrap-cast byte. */
+static void draw_cell(u32 cx, u32 cy, u32 cp)
 {
     const unsigned char *g;
     u32 r, x;
+    unsigned char c;
 
-    if (c >= nglyphs) c = (unsigned char)0;   /* known-absent: blank    */
+    c = cp < nglyphs ? (unsigned char)cp : (unsigned char)255;
     g = glyphs + (u32)c * charsize;
     for (r = 0; r < gh; ++r) {
         unsigned char bits = g[r];
@@ -110,9 +140,13 @@ void fbcon_clear(void)
 
 void fbcon_putc(char c)
 {
+    unsigned char b = (unsigned char)c;
+    u32 cp;
+    int r;
+
     if (cols == 0) return;                    /* un-inited console      */
-    if (c == '\r') { col = 0; return; }
-    if (c == '\n') {
+    if (b == '\r') { col = 0; return; }
+    if (b == '\n') {
         col = 0;
         if (++row >= rows) {
             row = rows - 1;
@@ -120,7 +154,21 @@ void fbcon_putc(char c)
         }
         return;
     }
-    draw_cell(col, row, (unsigned char)c);
+
+    /* M6.2: every visible byte goes through the ONE decoder. Controls
+       could not be continuation bytes (validated 80..BF), so routing
+       them before the decode is safe and keeps \n semantics exact. */
+    r = utf8_step(&u8st, b, &cp);
+    if (r < 0) {
+        /* refused: the byte is not consumed as text; re-feed it once
+           from the clean state so plain-ASCII after a truncated lead
+           is PAINTED, per utf8.h's contract. */
+        r = utf8_step(&u8st, b, &cp);
+        if (r < 0) return;                    /* true garbage: nothing */
+    }
+    if (r == 0) return;                       /* part of a sequence    */
+
+    draw_cell(col, row, cp);                  /* one CELL per CODEPOINT */
     if (++col >= cols) {
         col = 0;
         if (++row >= rows) {

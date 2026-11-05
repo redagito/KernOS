@@ -33,3 +33,8 @@ u32  fbcon_cols(void);      /* text columns     = fb_width / cw  */
 u32  fbcon_rows(void);      /* text rows        = fb_height/ch   */
 u64  fbcon_scrolls(void);   /* hard scrolls since init           */
 u32  fbcon_fg(void);        /* the one static fg color           */
+
+/* M6.2: ink count of the glyph a CODEPOINT maps to under the cell
+   map - the read side of the draw, so gates compare painted pixels
+   against the font's own answer. 0 before init. */
+u64  fbcon_map_ink(u32 cp);

@@ -16,9 +16,9 @@ typed event ABI. Milestone ledger and honesty about what is NOT
 proven live in [docs/ROADMAP.md](docs/ROADMAP.md) and
 [docs/disk-layout.md](docs/disk-layout.md).
 
-Six host suites (make hosttest) answer 132 checks for the pieces
+Seven host suites (make hosttest) answer 157 checks for the pieces
 that can answer on their own: fat32, elf64, format, font, input,
-pmm; everything else is gated at boot by named serial checks.
+pmm, utf8; everything else is gated at boot by named serial checks.
 
 ## Building
 

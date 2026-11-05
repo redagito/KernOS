@@ -36,6 +36,15 @@ SECTIONS
 
     /DISCARD/ : { *(.eh_frame*) *(.comment) *(.note*) *(.gnu.*) }
 
-    ASSERT(SIZEOF(.text) + SIZEOF(.rodata) + SIZEOF(.data) <= 32768,
+    /* M5.11 (round-two review, M4): .bss belongs to the budget. It is
+       NOLOAD inside the ONE PT_LOAD - its SIZEOF grows p_memsz past
+       p_filesz - and the runtime loader caps the span at 8 pages
+       (proc.h USER_MAX_PAGES). The old ASSERT omitted .bss: a
+       program whose static storage alone overshot the budget linked
+       clean and was refused only at RUN time (proc: elf refused) -
+       a link-time contract enforced by the loader. Red evidence:
+       scratch program with 34000 B .bss linked span 0x8510 > 0x8000. */
+    ASSERT(SIZEOF(.text) + SIZEOF(.rodata) + SIZEOF(.data) + SIZEOF(.bss)
+               <= 32768,
            "program exceeds the 32 KiB user span budget")
 }

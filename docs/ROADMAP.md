@@ -354,11 +354,74 @@ as listed below.
   and becomes doctrine: the scheduler's wake/park code is the least-
   defended region of the tree — its state machine (record vs CPU)
   gets written down BEFORE M6 adds threads to GUI.
+- **M5.11 — the second blind review's findings, gated one per commit
+  (locked 2026-11-05)**
+  Same protocol as M5.10: independent cold read of the tree, every
+  claim re-verified at the exact lines before acting. Ceiling note:
+  the round's headline High finding (H1, exit-ledger slot reuse) is
+  a REIFICATION of round-one F9 — with six threads and slots
+  recycling on the fixture boot, the round-one "can't fire yet" call
+  was wrong; the review supplied the concrete mechanism (collect
+  keys on `threads[i].ppid` in a claimed-over slot).
+  1. vsnprintf answers its own contract (a051ec7): the `cap==0`
+     early-return-0 LIE was hiding emit_char's `cap-1` size_t
+     underflow; fixed at the overflow site (cap>1 guard, cap==1
+     parks the NUL, cap==0 formats-into-NULL and still counts).
+     The suite NEVER caught it because host builds let gcc fold the
+     test's calls into its builtin - so HOST_CFLAGS gains
+     -fno-builtin (the suite must test OUR code) and test rules take
+     `$(MAKEFILE_LIST)` as prerequisite (a Makefile flag change must
+     rebuild the test binaries: the second costume of the
+     stale-binary lie). Ledger discipline: a va_list is an array;
+     it cannot be "passed as the value 5" (SEGV at 0x5 proved it) -
+     contract probes ride variadic helpers.
+  2. The frame free is restricted to what the universe held
+     (5085e41): pmm_init pushed the initial stack WITHOUT the
+     in_stack bits (the O(1) double-free guard was blind for the
+     whole initial stack; a duplicate push later aliases one frame
+     for two callers); a hole frame (never in a type-1 run) was
+     adoptable; a free past the universe indexed PAST the bitmap
+     (ASan SEGV at pmm.c:82). New: in_universe[] membership +
+     init bits on push + idx bounds in free AND in init (a sparse
+     E820 map walks idx past the capacity while top is small - found
+     WHILE writing the suite). NEW host suite test_pmm (16 checks;
+     red: 5 failures + the SEGV).
+  3. The spawn gate refuses what it would truncate (70bf566): 13+
+     char names resolved their silent 12-char prefix - which is a
+     DIFFERENT 8.3-shaped program name ("abcdefgh.elfz" ->
+     "abcdefgh.elf"). The gate now looks one source byte ahead
+     (user_ptr_ok re-checked) and refuses with a NEW error code:
+     SYS_ENAME (-2) = "shape refusal", keeping -1 for missing
+     file/loader; the shell reports "bad program name" vs "no such
+     program" instead of one hollow lie. Typed red: the old
+     "run refused (abcdefgh.elfz)" line (kernel resolved a name the
+     user never said); typed green: kernel's named line
+     "spawn: name refused (too long)" + correct split.
+  4. Slot reuse forfeits the uncollected exit record (a8ede72):
+     named ledger_reclaim() called at BOTH spawn publishes; reuse
+     is wait(2)-style forfeit. Boot check ("sched: ledger reuse
+     ok at claim") fabricates a dead child's record in the next
+     claim's slot and spawns a real kernel thread to catch spawn
+     paths that skip the reclaim: red on the pre-fix image (FAIL
+     line), green after. Round-one F9 is hereby closed by this
+     mechanism, not by "can't fire yet".
+  5. Link-time and fixture honesty (this commit): prog.ld ASSERT
+     counts .bss in the 32 KiB user span (red: 34000 B .bss linked
+     span 0x8510 > 0x8000 was refused only at RUN time); mkfat32
+     plants the FULL u32 dir size (red: 261-byte seed planted
+     size 5, 301-byte body planted 45 - (u8) truncation under a
+     <=512 bound that said "ok") + planted-size read-back
+     verification; README Status/Layout stopped saying "M1".
+  Suspended, still not fixed (recorded by both rounds, low
+  severity + priced): L1/L3/L4. Host ledger at M5.11: 130 checks /
+  0 failures (fat32 30, elf64 24, format 23, font 12, input 25,
+  pmm 16), every suite rebuilt under -fno-builtin discipline.
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software
   compositor, window manager, terminal emulator on our API; text
   is UTF-8 from the start.
+
 - **M7 — Network**
   Ethernet → ARP → IP → UDP → TCP from scratch on Intel e1000 or
   Realtek 8139/8168; text tools (netcat-a-like, smtp first, then http).

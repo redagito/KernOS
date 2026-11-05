@@ -237,6 +237,13 @@ int main(int argc, char **argv)
                 BENCH_WRITE_LBA, BENCH_MARKER_LBA, rb_clus, marker_clus);
         return 1;
     }
+    /* M5.11 (round-two review, M5): the size field is a full u32
+       FAT ABI (dir[0x1C..0x1F], LO byte first). The old code cast
+       strlen to u8 into byte 0x1C only - with the <=512 body bound
+       a 261-byte seed planted size 5 and the byte-3 tail wrote
+       GARBAGE it never owned - and the directory lied while
+       mkfat32 said ok. Red evidence: probe seed overrided at 261 /
+       body 301 planted 5 / 45. Write the whole word, verify below. */
     if (strlen(BENCH_SEED) == 0 || strlen(BENCH_LONG_BODY) == 0 ||
         strlen(BENCH_SEED) > 512 || strlen(BENCH_LONG_BODY) > 512 ||
         strlen(BENCH_WRITE) > strlen(BENCH_SEED)) {
@@ -304,7 +311,7 @@ int main(int argc, char **argv)
         memcpy(e, "KERNOS  TXT", 11);        /* base + ext, space padded */
         e[11]  = 0x20;
         e[0x1A] = 3;                         /* first cluster (lo,hi)=3,0 */
-        e[0x1C] = (u8)strlen(BENCH_SEED);    /* size: < 256 bytes        */
+        wr32(e, 0x1C, (u32)strlen(BENCH_SEED)); /* size: full u32 word (M5.11) */
     }
     /* slot 3: deleted-entry decoy */
     {
@@ -324,7 +331,36 @@ int main(int argc, char **argv)
         memcpy(e, "VERYLO~1TXT", 11);
         e[11]  = 0x20;
         e[0x1A] = 4;                         /* first cluster (lo,hi)=4,0 */
-        e[0x1C] = (u8)strlen(BENCH_LONG_BODY);
+        wr32(e, 0x1C, (u32)strlen(BENCH_LONG_BODY)); /* full u32 (M5.11) */
+    }
+    /* M5.11: planted-size read-back self-check - what the directory
+       says must equal what was planted, reread from the just-built
+       image bytes (this is where the (u8) truncation above used to
+       hide: a lying dir entry with a clean exit). */
+    {
+        static const char *names[] = { "KERNOS  TXT", "VERYLO~1TXT" };
+        u32 src[2] = { (u32)strlen(BENCH_SEED), (u32)strlen(BENCH_LONG_BODY) };
+        u32 rd[2];
+        u8 *es[2] = { D + 4 * 32, D + 2 * 32 };
+        for (int k = 0; k < 2; ++k) {
+            if (memcmp(es[k], names[k], 11) != 0) {
+                fprintf(stderr, "mkfat32: planted name mismatch slot %d\n", k);
+                free(u1); free(sh);
+                return 1;
+            }
+            rd[k] = (u32)es[k][0x1C]
+                  | ((u32)es[k][0x1D] << 8)
+                  | ((u32)es[k][0x1E] << 16)
+                  | ((u32)es[k][0x1F] << 24);
+            if (rd[k] != src[k]) {
+                fprintf(stderr, "mkfat32: planted size %u != source %u (%s)\n",
+                        rd[k], src[k], names[k]);
+                free(u1); free(sh);
+                return 1;
+            }
+        }
+        fprintf(stdout, "mkfat32: planted dir sizes verified (KERNOS.TXT %u, VERYLO~1TXT %u)\n",
+                rd[0], rd[1]);
     }
     /* slot 5: U1.ELF - the userland program (M5.3) */
     {

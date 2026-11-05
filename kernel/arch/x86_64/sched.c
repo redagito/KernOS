@@ -153,6 +153,15 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
     t->id    = i;
     set_name(t, name);              /* owned copy, not a borrowed pointer */
     t->cr3   = 0;
+    /* M5.14 (round four, S1): init-to-absence at EVERY claim, not
+       just the successful user one. A previous thread_spawn_user
+       refusal leaves nframes counting frames that
+       proc_build_space_elf already released on its own refusal
+       paths - the stale number would name frames that no longer
+       exist. Unreachable today: kernel tenants never route through
+       sched_exit_now, so nothing reads the stale count; the init is
+       rule 2 applied, not a fire closed. */
+    t->nframes = 0;
     t->ppid  = 0;                    /* kernel thread: not a child proc */
     t->waitq = 0;
     fill_ctx(t, (u64)entry, (u64)arg);

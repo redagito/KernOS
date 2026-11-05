@@ -51,10 +51,24 @@
  *                  carries a live address space.
  *       ppid     - written once at spawn (parent = the caller); read by
  *                  collect + any_children + the reclaim. Never rewritten.
+ *       nframes  - user spawn ONLY: initialized to 0 (M5.14, after
+ *                  round-four rule audit) BEFORE the frames are handed
+ *                  to proc_build_space_elf, so the ledger describes the
+ *                  dead space exactly; kernel spawns initialize it too -
+ *                  a failed user build leaves the released count behind,
+ *                  and init-to-absence is a claim-time rule (rule 2),
+ *                  not a success-time one.
  *       waitq    - meaningful ONLY while T_WAITING; spent (0) on EVERY
  *                  resume path - no armed wake without a parked record
  *                  (the M5.10 honesty rule). Armed second at block time:
  *                  no wake can interleave before it (IF off, rule 1).
+ *                  PRICED ENCODING NOTE (M5.14 audit): the spent value
+ *                  0 IS the id of SCHED_WQ_KBD - safe only because no
+ *                  WAITING record can exist unarmed (armed before the
+ *                  state flip, spent on every resume); superseding this
+ *                  in M6 means giving the spent state its own value
+ *                  outside the queue id space, not leaning on the
+ *                  structural guarantee.
  *       state    - THE load-bearing field; see rule 3.
  *
  *  3. STATE IS THE LAST WRITE OF EVERY PUBLISH. Spawn publishes the

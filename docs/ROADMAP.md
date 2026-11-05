@@ -416,6 +416,53 @@ as listed below.
   severity + priced): L1/L3/L4. Host ledger at M5.11: 130 checks /
   0 failures (fat32 30, elf64 24, format 23, font 12, input 25,
   pmm 16), every suite rebuilt under -fno-builtin discipline.
+- **M5.12 — the third blind review: one fix per finding, and one
+  finding BEATEN by experiment (locked 2026-11-05)**
+  Round three's headline was ABSENCE: no reachable High/Medium
+  defect at b44008d. All four acting findings were verified at their
+  exact lines before touching anything; two were Low-latent, two
+  were evidence-honesty. One per commit, as always:
+  1. The format loop stops AT the terminator (2a5ebb6): a bare
+     trailing % or flag-without-verb made the unconditional tail
+     fmt++ step over the string's NUL and rescan neighboring rodata
+     (no in-tree trigger - every caller passes literals - pinned
+     anyway, as the libc's most reused string). Red in-bounds: two
+     suite checks plant a sentinel AFTER the NUL inside the
+     caller's array (format 23 -> 25); green: the tail step is
+     conditional (if (*fmt) fmt++), 132 checks / 0 failures.
+  2. The AHCI read-test owns its frame (bdd2fb2): pmm exhaustion
+     would have DMA'd 8 boot sectors to PA 0 (ahci_read only checks
+     alignment), and the failure branch leaked the frame. Guard +
+     symmetric free; no boot-red exists (exhaustion is unreachable
+     with ~32k free frames at that site), stated as such; gate
+     green with byte-identical read-test output.
+  3. F-3 lost to an experiment, F-4 went into the code (37cf43b):
+     the reviewer claimed inw's EAX[31:16] residue survives the
+     andl $0xFFF8 id-compare and can silently drop a live dispi
+     into the BIOS fallback. WRONG - the mask is an imm32 AND that
+     zero-extends to 0x0000FFF8, clearing the upper word itself;
+     a scratch build with the residue worst-case injected (id
+     rescued out of AX, 0xBAC00000 loaded, restored) STILL took the
+     primary path. No fix shipped; not even a defensive movzwl,
+     whose comment would have stated a proven-false hazard. What
+     DID ship: the dispi path reads XRES/YRES/BPP back after
+     ENABLE and only hands off when the card echoes the request
+     (refusal: park disabled, emit 'r', take the BIOS path) - the
+     doc's "set and verified" is now literally true on both paths;
+     new letters d/e (engaged / enumeration) make the dispi-vs-BIOS
+     choice visible in the serial stream for the first time.
+  4. Every thread record owns its name (f46e8f9): the one static
+     prog_name_store every spawned record pointed into was rewritten
+     by the next spawn (safe only under the serialized gate);
+     namebuf[17] + set_name() gives each record an owned bound copy,
+     "main" included. No red (needs overlapping spawns - the
+     serialization makes it unreachable today), said honestly. Plus
+     the elf64.h comment naming the real function (elf64_errname).
+  Gate lesson in the ledger: a guessed cue ("u1: pid=8 tick=2";
+  pid was 4) pins ksh-driver's ORDERED cue wait against its
+  MaxWaitBootSec floor - require-cues are copied from observed
+  serial identities, never constructed. Host ledger at M5.12:
+  132 checks / 0 failures (format grew to 25).
 - **M6 — GUI**
   Hand-drawn glyphs stored in PSF2 (standard console-font container,
   no custom format), framebuffer (VBE in BIOS boot), software

@@ -18,3 +18,11 @@ void irq_init(void);                             /* remap + mask-all */
 void irq_enable(u8 irq);                         /* unmask exactly one */
 void irq_set_handler(u8 irq, irq_handler_t fn);  /* NULL = spurious sink */
 void irq_eoi(u8 irq);                            /* early-EOI for switching handlers */
+
+/* Critical-section primitives: irq_save returns the caller's flags
+   (or clear) at the moment of the call and holds RFLAGS with the IF
+   turned OFF; irq_restore puts back EXACTLY what was saved - a caller
+   that already ran IF-off (the syscall write gate prints with IF
+   off) must come out IF-off, so a bare sti here would be the bug. */
+u64  irq_save(void);
+void irq_restore(u64 flags);

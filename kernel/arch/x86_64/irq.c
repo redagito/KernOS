@@ -70,6 +70,24 @@ void irq_set_handler(u8 irq, irq_handler_t fn)
     if (irq < IRQ_COUNT) handlers[irq] = fn;
 }
 
+/* RFLAGS.IF is bit 9. */
+#define RFLAGS_IF 0x200u
+
+u64 irq_save(void)
+{
+    u64 flags;
+    __asm__ volatile("pushfq\n\tpopq %0" : "=r"(flags));
+    if (flags & RFLAGS_IF)
+        __asm__ volatile("cli");
+    return flags;
+}
+
+void irq_restore(u64 flags)
+{
+    if (flags & RFLAGS_IF)
+        __asm__ volatile("sti");
+}
+
 /* End-of-interrupt, for handlers that preemptively switch stacks away
    mid-handler and so never reach irq_dispatch's tail. Safe to send
    again later: with no ISR bit set the PIC ignores the EOI. */

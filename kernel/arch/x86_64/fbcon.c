@@ -3,6 +3,7 @@
 #include "fbcon.h"
 #include "fb.h"
 #include "compo.h"
+#include "irq.h"
 
 /*
  * fbcon.c — glyph console on the M5.6 linear framebuffer.
@@ -156,7 +157,23 @@ static void scroll(void)
     compo_backdrop_scroll(gh);
 }
 
-void fbcon_clear(void)
+/* M6.4-followup: the moment two printer threads race the console
+   (worker A vs worker B, IF on, PIT-preemptible at ANY instruction
+   of the draw loop), the print path is a CRITICAL SECTION. The face's
+   shared statics (col, row, cellbuf, u8st) plus the ghxgw pixel
+   stores of one cell are not atomic: a tick landing inside a writer's
+   draw lets the sibling finish that same cell, and the resumed writer
+   repaints only its RESIDUAL glyph rows over it - the observed
+   intra-cell band mix (one cell = glyph A's top rows over glyph B's
+   bottom rows, seam never font-aligned; serial stayed correct per
+   byte-order since the byte left for the UART before any draw). The
+   whole per-codepoint window (decode -> draw -> truth store ->
+   advance, inclusive of a bottom-edge scroll call) is serialized
+   with the irq_save/restore primitives, NOT a bare cli/sti pair:
+   the syscall write gate already prints with IF off, and restoring
+   exactly the caller's flags keeps the gate's IF-off contract.
+   Latency precedent: that gate holds the IF off for whole lines. */
+static void fbcon_clear_face(void)
 {
     fb_rect_fill(0, 0, fb_width(), fb_height(), 0);
     col = 0;
@@ -165,7 +182,14 @@ void fbcon_clear(void)
     compo_face_cleared();
 }
 
-void fbcon_putc(char c)
+void fbcon_clear(void)
+{
+    u64 flags = irq_save();
+    fbcon_clear_face();
+    irq_restore(flags);
+}
+
+static void fbcon_putc_face(char c)
 {
     unsigned char b = (unsigned char)c;
     u32 cp;
@@ -205,6 +229,17 @@ void fbcon_putc(char c)
             scroll();
         }
     }
+}
+
+/* The shared face's door: one writer at a time, end of story. */
+void fbcon_putc(char c)
+{
+    u64 flags;
+
+    if (cols == 0) return;                    /* un-inited console      */
+    flags = irq_save();
+    fbcon_putc_face(c);
+    irq_restore(flags);
 }
 
 void fbcon_puts(const char *s)

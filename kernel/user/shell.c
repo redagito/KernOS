@@ -70,8 +70,15 @@ int main(void)
                 continue;
             }
             long pid = spawn(arg);
+            if (pid == -2) {          /* SYS_ENAME: shape refusal      */
+                printf("ksh: bad program name (%s)\n", arg);
+                continue;
+            }
             if (pid < 0) {
-                printf("ksh: run refused (%s)\n", arg);
+                /* M5.11: pointed message - the missing-file meaning
+                   the gate used to sign for EVERY refusal, including
+                   its own name truncations */
+                printf("ksh: no such program (%s)\n", arg);
                 continue;
             }
             printf("ksh: spawned %s pid=%ld\n", arg, pid);

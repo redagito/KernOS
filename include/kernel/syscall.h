@@ -33,3 +33,8 @@
 /* Error codes: v0 is the cheap era - one value. The numbering stays
    open (negated, small, errno-shaped) for later detail. */
 #define SYS_EINVAL (-1)
+/* M5.11 (spawn only): -2 = the NAME is malformed (longer than the
+   12-char 8.1 shape, or a stem over 8) - distinct from -1 "no such
+   program", so callers can refuse honestly instead of blaming a
+   missing file for a name the gate never accepted. */
+#define SYS_ENAME (-2)

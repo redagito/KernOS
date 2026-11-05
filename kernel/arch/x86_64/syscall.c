@@ -201,18 +201,37 @@ void syscall_dispatch(struct trapframe *tf)
             r = (u64)SYS_EINVAL;
             break;
         }
-        /* M5.10: honor the documented 8.1 shape exactly. A name that
-           carries its own suffix is valid only when the stem fits 8
-           ("shell.elf" is 9 chars; the old 7-char copy made this
-           resolve SHELL.E.ELF and refuse as a missing file). A bare
-           stem gets the suffix only if it fits 8 (the old bound cut
-           8-char stems silently). Anything else: refused - the gate
-           never invents an 8.3 name the user did not say. */
+        /* M5.11 (round-two review, M3): the buffer filled with no
+           terminator in view - look ONE source byte ahead (user
+           memory re-checked page-wise): anything but the NUL means
+           the user SAID more than the 8.1 name the gate resolves.
+           Refuse; the old code silently resolved the 12-char prefix
+           - "abcdefgh.elfz" as "abcdefgh.elf", a DIFFERENT program
+           ("the gate never invents a name the user did not say"). */
+        if (p != 0 && nlen == sizeof name - 1) {
+            if ((tf->cs & 3) == 3 && !user_ptr_ok((u64)p, 1)) {
+                p = 0;                /* pointer problem: EINVAL */
+            } else if (*p != '\0') {
+                console_puts("spawn: name refused (too long)\n");
+                r = (u64)SYS_ENAME;
+                break;
+            }
+        }
+        /* M5.10, amended M5.11: honor the documented 8.1 shape
+           exactly. A name that carries its own suffix is valid only
+           when the stem fits 8 ("shell.elf" is 9 chars; the old
+           7-char copy made this resolve SHELL.E.ELF and refuse as a
+           missing file). A bare stem gets the suffix only if it fits
+           8 (the old bound cut 8-char stems silently). Anything else:
+           refused - the gate never invents an 8.3 name the user did
+           not say; shape refusals speak -2 (missing file stays -1,
+           M5.11), so callers can tell the two apart. */
         if (nlen >= 4 &&
             (name[nlen-4] | 0x20) == '.' && (name[nlen-3] | 0x20) == 'e' &&
             (name[nlen-2] | 0x20) == 'l' && (name[nlen-1] | 0x20) == 'f') {
             if (nlen - 4 > 8) {       /* stem over 8: not 8.3, refuse   */
-                r = (u64)SYS_EINVAL;
+                console_puts("spawn: name refused (not 8.3)\n");
+                r = (u64)SYS_ENAME;
                 break;
             }
         } else if (nlen <= 8) {
@@ -221,7 +240,8 @@ void syscall_dispatch(struct trapframe *tf)
             name[nlen++] = 'L';
             name[nlen++] = 'F';
         } else {                      /* bare stem of 9+: nothing to say */
-            r = (u64)SYS_EINVAL;
+            console_puts("spawn: name refused (not 8.3)\n");
+            r = (u64)SYS_ENAME;
             break;
         }
         name[nlen] = '\0';

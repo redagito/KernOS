@@ -48,7 +48,7 @@ v0 rules beyond the table:
 | 2 | `write` | fd(1 = COM1 console), buf, n| bytes written, or -1          |
 | 3 | `exit`  | code                        | does not return               |
 | 4 | `read`  | fd(0 = COM1 console in), buf, n | bytes read (can block), or -1 |
-| 5 | `spawn` | name(8.1; ".ELF" assumed if absent) | new pid, or -1        |
+| 5 | `spawn` | name(8.1; ".ELF" assumed if absent) | new pid, -1 refused, M5.11: -2 bad name |
 | 6 | `wait`  | —                           | a child's exit code, or -1    |
 | 7 | `input` | buf, max (≤ 64 events/call) | events drained now, or -1     |
 
@@ -118,8 +118,13 @@ that invariant 1 needed no grafting:
   honest non-blocking behavior, never a sleep-loop.
 - `spawn` (5): name → root-dir 8.3 lookup → FAT read → ELF64 loader
   builds the child's space → new thread with `ppid = caller`.
-  Refusals (no such file, loader refusal, table full) return -1
-  with NOTHING left behind.
+  Refusals: shape problems (name over the 12-char 8.1 shape, stem
+  over 8) return -2 `SYS_ENAME`; content problems (no such file,
+  loader refusal, table full) return -1; both with NOTHING left
+  behind. M5.11, M3: 13+ chars no longer resolve their silent
+  12-char prefix (which could BE a different program) - the gate
+  looks one source byte ahead and refuses with `-2` plus the
+  named line `spawn: name refused (too long)`.
 - `wait` (6): collect a reaped child's exit code (per-tid
   `exited[]/exit_codes[]` tables outlive the thread record;
   collectible once). No children = -1. Children exist but none

@@ -57,6 +57,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/fb.o \
 	$(OBJ)/fbcon.o \
 	$(OBJ)/font.o \
+	$(OBJ)/cursor.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
@@ -259,6 +260,13 @@ $(OBJ)/input_core.o: kernel/input.c include/kernel/input.h
 # faces and the future terminal run the same text the host tests
 # compile - every overlong/surrogate/ceiling refusal is a host fact.
 $(OBJ)/utf8.o: kernel/utf8.c include/kernel/utf8.h
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+# The pointer sprite (M6.3): composites over the shared LFB in the
+# restore->save->paint order the M6.4 window layer adopts.
+$(OBJ)/cursor.o: kernel/arch/x86_64/cursor.c kernel/arch/x86_64/cursor.h \
+		include/kernel/input.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

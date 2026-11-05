@@ -7,6 +7,7 @@
 #include "fat32.h"
 #include "serial.h"
 #include "console.h"
+#include "cursor.h"
 
 /*
  * The 0x80 syscall gate (M5.1+, docs/syscall-abi.md).
@@ -272,6 +273,10 @@ void syscall_dispatch(struct trapframe *tf)
             break;
         }
         r = (u64)input_pull(buf, (int)max);   /* IF off: SPSC clean     */
+        /* M6.3: the SAME consumer decides where the pointer is - the
+           ring stays SPSC (cursor_apply, like input_pull, runs IF
+           off on the caller's stack; no second mind ever reads it). */
+        cursor_apply(buf, (int)r);
         break;
     }
 

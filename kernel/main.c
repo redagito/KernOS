@@ -29,6 +29,7 @@
 #include "arch/x86_64/mouse.h"
 #include "arch/x86_64/fb.h"
 #include "arch/x86_64/fbcon.h"
+#include "arch/x86_64/cursor.h"
 
 /* M5.1: the v0 syscall ABI exercised from the caller side - the same
    four-step shape userland will use (docs/syscall-abi.md). RAX carries
@@ -441,6 +442,23 @@ void kernel_main(void)
         } else {
             console_puts("console: mirror ink FAILED\n");
         }
+    }
+
+    /* M6.3 pointer sprite: the GUI's first always-visible object.
+       cursor_boot_probe runs the restore->save->paint cycle once at
+       a bounded spot and proves the RESTORE reads back exactly what
+       SAVE read - the movement primitive's contract, byte-real -
+       then parks the arrow on screen. Movements arrive through the
+       input ring's single consumer (syscall nr 7 feeds cursor_apply)
+       so the SPSC discipline keeps exactly one mind. */
+    {
+        int cpr = cursor_boot_probe();
+        if (cpr == 0)
+            console_puts("cursor: probe ok parked\n");
+        else if (cpr == 1)
+            console_puts("cursor: probe FAILED (restore mismatch)\n");
+        else
+            console_puts("cursor: absent - no LFB (probe skipped)\n");
     }
 
     /* M4.1: PCI walk — the storage estate the AHCI driver will own. */

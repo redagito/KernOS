@@ -1,5 +1,12 @@
 #include <string.h>
 
+char *strcpy(char *dst, const char *src)
+{
+    char *out = dst;
+    while ((*dst++ = *src++)) {}
+    return out;
+}
+
 /*
  * string.c - hand-rolled word-at-a-time-able, but kept byte-loop
  * simple: 4 KiB user pages and a 100 Hz world make -O2 loops plenty,

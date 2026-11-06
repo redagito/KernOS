@@ -23,3 +23,4 @@ void _exit(int code)
 }
 
 void exit(int code) __attribute__((noreturn, alias("_exit")));
+void abort(void) { _exit(127); }

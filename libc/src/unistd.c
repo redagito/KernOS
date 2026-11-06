@@ -72,3 +72,18 @@ long input(void *buf, long max)
 {
     return gate(SYSCALL_INPUT, (long)buf, max, 0);
 }
+
+ssize_t file_load(const char *name, void *buf, size_t cap)
+{ return gate(SYSCALL_FILE_LOAD, (long)name, (long)buf, cap); }
+ssize_t file_save(const char *name, const void *buf, size_t size)
+{ return gate(SYSCALL_FILE_SAVE, (long)name, (long)buf, size); }
+long spawn_args(const char *name, const char *args)
+{ return gate(SYSCALL_SPAWN_ARGS, (long)name, (long)args, 0); }
+long process_args(char *buf, size_t cap)
+{ return gate(SYSCALL_ARGS, (long)buf, cap, 0); }
+long term_clear(void) { return gate(SYSCALL_TERM, 0, 0, 0); }
+long term_move(long col, long row) { return gate(SYSCALL_TERM, 1, col, row); }
+long term_geometry(void) { return gate(SYSCALL_TERM, 2, 0, 0); }
+long term_caret(void) { return gate(SYSCALL_TERM, 3, 0, 0); }
+long waitpid(long pid) { return gate(SYSCALL_WAITPID, pid, 0, 0); }
+long term_paint(const char *buf, size_t len) { return gate(SYSCALL_PAINT, (long)buf, len, 0); }

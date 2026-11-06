@@ -11,6 +11,12 @@ principles amended 2026-11-01, same day, after dogma friction.)
 
 ## Locked decisions
 
+Current delivered workflow (2026-11-06): userland editor + independent
+console, persistent source files, in-OS TinyCC-based KCC compilation and
+execution now pass automated two-boot QEMU acceptance. The chronological
+milestone notes below describe earlier gates; current usage, constraints,
+and evidence are in [DEVELOPMENT-WORKFLOW.md](DEVELOPMENT-WORKFLOW.md).
+
 | Area        | Decision                                                                  |
 |-------------|---------------------------------------------------------------------------|
 | Arch        | x86-64                                                                    |

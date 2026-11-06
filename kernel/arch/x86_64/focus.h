@@ -84,3 +84,5 @@ void focus_thread_exit(int tid);
 u64  focus_parks(void);
 u64  focus_claims(void);
 int  focus_owner_tid(void);
+int focus_band(int tid, int *row, int *height);
+void focus_thread_start(int tid);

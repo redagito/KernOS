@@ -5,6 +5,7 @@
 #include "serial.h"
 #include "console.h"
 #include "pmm.h"
+#include "focus.h"
 
 /*
  * Round-robin over a fixed set (M2.4, extended M5.2). Thread records
@@ -40,11 +41,48 @@ struct thread {
        serializes spawns - an aliasing trap lying in wait for the first
        concurrent spawn or name dump. */
     char         namebuf[17];
+    char         args[128];
+    u8           fpu[512] __attribute__((aligned(16)));
 };
 
 static struct thread threads[MAX_THREADS];
 static struct thread *cur;
 static u64 switches;
+static u8 initial_fpu[512] __attribute__((aligned(16)));
+
+/* Kernel code stays SSE-free. Eager save/restore preserves all x87/MMX/SSE
+   state across both timer preemption and blocking syscalls. */
+static void fpu_init(void)
+{
+    u64 cr0, cr4;
+    __asm__ volatile("mov %%cr0,%0" : "=r"(cr0));
+    cr0 = (cr0 & ~12ULL) | 34;
+    __asm__ volatile("mov %0,%%cr0" :: "r"(cr0));
+    __asm__ volatile("mov %%cr4,%0" : "=r"(cr4));
+    cr4 |= 1536;
+    __asm__ volatile("mov %0,%%cr4" :: "r"(cr4));
+    u32 mxcsr = 0x1f80;
+    __asm__ volatile("fninit; ldmxcsr %0; fxsave64 %1" : : "m"(mxcsr), "m"(initial_fpu) : "memory");
+}
+
+void sched_set_args(int tid, const char *args)
+{
+    if (tid < 0 || tid >= MAX_THREADS) return;
+    int n = 0;
+    while (n < 127 && args[n]) { threads[tid].args[n] = args[n]; ++n; }
+    threads[tid].args[n] = 0;
+}
+
+long sched_get_args(char *buf, u64 cap)
+{
+    u64 n = 0;
+    while (cur->args[n]) ++n;
+    if (cap <= n) return -1;
+    for (u64 i = 0; i <= n; ++i) buf[i] = cur->args[i];
+    return (long)n;
+}
+
+int sched_parent_tid(void) { return cur ? cur->ppid : 0; }
 
 /* Child-exit ledger (M5.5): indexed by tid - the permanent small-int
    namespace. A slot can be FREE again while its exit result is still
@@ -57,6 +95,14 @@ static u64 switches;
    child's exit code before the new child had even run). */
 static u8  exited[MAX_THREADS];
 static u64 exit_codes[MAX_THREADS];
+
+int sched_wait_child(int tid, u64 *code)
+{
+    if (tid < 1 || tid >= MAX_THREADS || !cur || threads[tid].ppid != cur->id)
+        return -1;
+    if (exited[tid]) { *code = exit_codes[tid]; exited[tid] = 0; return 1; }
+    return threads[tid].state == T_FREE ? -1 : 0;
+}
 
 /* M5.11: claim-time discipline for one slot: whosever result was
    still parked there is forfeited - the namespace slot is the only
@@ -101,6 +147,8 @@ static void set_name(struct thread *t, const char *n)
 
 void sched_init(void)
 {
+    fpu_init();
+    for (int j = 0; j < 512; ++j) threads[0].fpu[j] = initial_fpu[j];
     boot_cr3    = 0;
     __asm__ volatile("mov %%cr3, %0" : "=r"(boot_cr3));
     boot_cr3   &= ~0xFFFULL;
@@ -150,6 +198,7 @@ int thread_spawn(const char *name, thread_fn entry, void *arg)
                                recycled slot is forfeited, never adopted
                                by the new tenant */
     struct thread *t = &threads[i];
+    for (int j = 0; j < 512; ++j) t->fpu[j] = initial_fpu[j];
     t->id    = i;
     set_name(t, name);              /* owned copy, not a borrowed pointer */
     t->cr3   = 0;
@@ -187,6 +236,7 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
                                through it */
 
     struct thread *t = &threads[i];
+    for (int j = 0; j < 512; ++j) t->fpu[j] = initial_fpu[j];
     t->nframes = 0;                  /* ledger starts empty            */
     u64 entry = 0;
     u64 cr3 = proc_build_space_elf(elf, elf_len, t->frames,
@@ -199,6 +249,8 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
     t->cr3  = cr3;
     t->ppid = cur ? (int)cur->id : 0;    /* spawner link (WAIT collects) */
     t->waitq = 0;
+    t->args[0] = 0;
+    focus_thread_start(i);
     fill_ctx(t, (u64)proc_user_entry, entry);
     t->state = T_RUNNABLE;           /* LAST: see above, no half-built slot */
 
@@ -213,6 +265,8 @@ int thread_spawn_user(const char *name, const void *elf, u64 elf_len)
    (tick, gate, exit path all guarantee it). */
 static void switch_into(struct thread *from, struct thread *to)
 {
+    __asm__ volatile("fxsave64 %0" : "=m"(from->fpu));
+    __asm__ volatile("fxrstor64 %0" :: "m"(to->fpu));
     cur = to;
     switches++;
 

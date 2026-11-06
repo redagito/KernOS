@@ -164,16 +164,14 @@ u64 proc_build_space_elf(const void *elf, u64 elf_len,
     for (int i = 0; i < nsegs; ++i)
         copy_segment(elf, &segs[i], span_lo, frames + 4);
 
-    /* ---- stack pages at 0x5FC000..0x600000. PT slots are
-       (va>>12)&0x1FF, i.e. 0x1FC..0x1FF - the VA itself (0x5FC) is
-       NOT the slot index (first draft walked off the table with
-       0x5FC+; the #DF dump named the push and it is now a comment). */
+    /* Stack PT slots derive from its size: a 64 KiB stack occupies
+       slots 0x1F0..0x1FF, independently of the program span. */
     for (u64 spg = 0; spg < USER_STACK_SZ / 4096; ++spg) {
         u64 pa = pmm_alloc();
         if (!pa) { frames_release(frames, nf); return 0; }
         frames[nf++] = pa;
         zero_frame(pa);
-        ptv[0x1FC + spg] = pa | 0x07;
+        ptv[((USER_STACK_VA - USER_STACK_SZ) >> 12 & 0x1FF) + spg] = pa | 0x07;
     }
 
     console_puts("proc: space built elf cr3=");
@@ -229,7 +227,7 @@ void proc_user_entry(u64 entry)
         "xorl  %%r15d, %%r15d\n\t"
         "movl  $0x600000, %%esp\n\t"
         "pushq $0x3B\n\t"                           /* ss              */
-        "pushq $0x600000\n\t"                       /* rsp  (grows dn) */
+        "pushq $0x5ffff8\n\t"                       /* SysV C entry: rsp mod 16 == 8 */
         "pushq $0x202\n\t"                          /* rflags: IF      */
         "pushq $0x33\n\t"                           /* cs: user 64-bit */
         "pushq %%rdi\n\t"                           /* rip: entry      */

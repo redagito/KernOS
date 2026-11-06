@@ -43,6 +43,7 @@ static u32 fg = 0x00AAAAAA;                   /* light grey on black    */
    a screen over the cap is an init-time named refusal, not a guess. */
 #define FBCON_MAX_CELLS 8192
 static u32 cellbuf[FBCON_MAX_CELLS];
+static u8 cellmark[FBCON_MAX_CELLS];
 
 u32 fbcon_fg(void) { return fg; }
 u32 fbcon_cols(void) { return cols; }
@@ -129,7 +130,8 @@ static void draw_cell(u32 cx, u32 cy, u32 cp)
         unsigned char bits = g[r];
         for (x = 0; x < gw; ++x)
             fb_pixel_set(cx * gw + x, cy * gh + r,
-                         (bits & (0x80 >> x)) ? fg : 0);
+                         (bits & (0x80 >> x)) ? fg :
+                         (cellmark[cy * cols + cx] ? 0x00336699 : 0));
     }
 }
 
@@ -285,8 +287,25 @@ void fbcon_cells_redraw(u32 x, u32 y, u32 w, u32 h)
 void fbcon_cell_draw(u32 c, u32 r, u32 cp)
 {
     if (cols == 0 || c >= cols || r >= rows) return;
+    cellmark[(u64)r * cols + c] = 0;
     cellbuf[(u64)r * cols + c] = cp;
     draw_cell(c, r, cp);
+    compo_cells_painted(c * gw, r * gh, gw, gh);
+}
+
+void fbcon_cell_mark(u32 c, u32 r)
+{
+    if (c >= cols || r >= rows) return;
+    cellmark[(u64)r * cols + c] = 1;
+    draw_cell(c, r, cellbuf[(u64)r * cols + c]);
+    compo_cells_painted(c * gw, r * gh, gw, gh);
+}
+
+void fbcon_cell_unmark(u32 c, u32 r)
+{
+    if (c >= cols || r >= rows) return;
+    cellmark[(u64)r * cols + c] = 0;
+    draw_cell(c, r, cellbuf[(u64)r * cols + c]);
     compo_cells_painted(c * gw, r * gh, gw, gh);
 }
 

@@ -18,6 +18,16 @@
 #include "fat32.h"      /* via -Ikernel */
 
 static int t_no = 0, n_fail = 0;
+struct fail_ctx { struct block_dev *dev; u64 data_start; int fail_data; };
+static int fail_read(void *ctx, u64 lba, void *buf, u32 n)
+{ return blk_read(((struct fail_ctx *)ctx)->dev, lba, buf, n); }
+static int fail_write(void *ctx, u64 lba, const void *buf, u32 n)
+{
+    struct fail_ctx *f = ctx;
+    if (f->fail_data && lba >= f->data_start) { f->fail_data = 0; return -1; }
+    return blk_write(f->dev, lba, buf, n);
+}
+static u64 fail_sectors(void *ctx) { return blk_sectors(((struct fail_ctx *)ctx)->dev); }
 
 static void check(int cond, const char *title)
 {
@@ -167,6 +177,104 @@ int main(int argc, char **argv)
             check(fat_write_file("NOPE.TXT", wb, 4) == -1,
                   "write missing file refused");
         }
+    }
+
+    /* ---------- create/replace/truncate with durable FAT metadata ------ */
+    {
+        static u8 data[2600], saved[3000];
+        for (u32 i = 0; i < sizeof data; ++i)
+            data[i] = (u8)((i * 29u + 7u) & 0xFF);
+        check(fat_save_file("SAVETEST.BIN", data, 1300) == 1300,
+              "save creates a multi-cluster root file");
+        check(fat_file_size("SAVETEST.BIN") == 1300,
+              "new file size is recorded");
+        int got = fat_read_file("SAVETEST.BIN", saved, sizeof saved);
+        check(got == 1300 && memcmp(saved, data, 1300) == 0,
+              "new file data reads back byte-exact");
+
+        /* Verify the allocated cluster's low 28-bit entry is mirrored. */
+        {
+            u64 root_lba = (u64)fi.data_start +
+                           (u64)(fi.root_clus - 2) * fi.spc;
+            u32 first = 0;
+            int found = 0;
+            for (u32 s = 0; s < fi.spc && !found; ++s) {
+                u8 sector[512];
+                if (blk_read(b, root_lba + s, sector, 1) != 0) break;
+                for (u32 e = 0; e < 16; ++e) {
+                    u8 *en = sector + e * 32;
+                    if (en[0] == 0) break;
+                    if (memcmp(en, "SAVETESTBIN", 11) == 0) {
+                        first = (u32)en[0x1A] | ((u32)en[0x1B] << 8) |
+                                ((u32)en[0x14] << 16) | ((u32)en[0x15] << 24);
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+            u8 fa[512], fb[512];
+            int ok = found && first >= 2 &&
+                blk_read(b, fi.reserved + (first >> 7), fa, 1) == 0 &&
+                blk_read(b, fi.reserved + fi.fat_secs + (first >> 7), fb, 1) == 0;
+            if (ok) {
+                u32 off = (first & 127) * 4;
+                u32 va = (u32)fa[off] | ((u32)fa[off+1] << 8) |
+                         ((u32)fa[off+2] << 16) | ((u32)fa[off+3] << 24);
+                u32 vb = (u32)fb[off] | ((u32)fb[off+1] << 8) |
+                         ((u32)fb[off+2] << 16) | ((u32)fb[off+3] << 24);
+                ok = (va & 0x0FFFFFFFu) == (vb & 0x0FFFFFFFu) &&
+                     (va & 0x0FFFFFFFu) >= 2 &&
+                     (va & 0x0FFFFFFFu) < fi.total_clusters + 2;
+            }
+            check(ok, "new allocation is written to both FAT copies");
+        }
+
+        check(fat_save_file("SAVETEST.BIN", data, 2600) == 2600,
+              "replacement grows the file");
+        check(fat_file_size("SAVETEST.BIN") == 2600,
+              "grown size is recorded");
+        check(fat_save_file("SAVETEST.BIN", data, 17) == 17,
+              "replacement truncates the file");
+        check(fat_file_size("SAVETEST.BIN") == 17,
+              "truncated size is recorded");
+        check(fat_read_file("SAVETEST.BIN", saved, sizeof saved) == 17 &&
+              memcmp(saved, data, 17) == 0,
+              "truncated file content is byte-exact");
+        check(fat_save_file("SAVETEST.BIN", 0, 0) == 0,
+              "replacement accepts an empty file");
+        check(fat_file_size("SAVETEST.BIN") == 0 &&
+              fat_read_file("SAVETEST.BIN", saved, sizeof saved) == 0,
+              "empty file persists with size zero");
+
+        check(fat_save_file("TOOLONGNAME.TXT", data, 1) == -1 &&
+              fat_save_file("BAD.NAME.TXT", data, 1) == -1 &&
+              fat_save_file("A.", data, 1) == -1 &&
+              fat_save_file(".TXT", data, 1) == -1,
+              "invalid 8.3 names are rejected without truncation");
+        check(fat_save_file("SAVETEST.BIN", 0, 1) == -1,
+              "nonempty save requires a source buffer");
+
+        check(fat_mount(b) == 0, "remount after saves succeeds");
+        check(fat_file_size("SAVETEST.BIN") == 0 &&
+              fat_read_file("SAVETEST.BIN", saved, sizeof saved) == 0,
+              "empty file survives remount");
+
+        /* The compiler and header set exceed one root-directory cluster. */
+        for (int i = 0; i < 24; ++i) {
+            char name[13];
+            snprintf(name, sizeof name, "ROOT%02d.TXT", i);
+            if (fat_save_file(name, data, 17) != 17) { ++n_fail; break; }
+        }
+        check(fat_mount(b) == 0 && fat_read_file("ROOT23.TXT", saved, sizeof saved) == 17 &&
+              !memcmp(saved, data, 17), "root directory grows and survives remount");
+        check(fat_save_file("KEEP.C", "original", 8) == 8, "prepare source for failed-save test");
+        struct fail_ctx fc = {b, fi.data_start, 1};
+        static const struct block_ops fail_ops = {fail_read, fail_write, fail_sectors};
+        struct block_dev failing = {&fail_ops, &fc};
+        check(fat_mount(&failing) == 0 && fat_save_file("KEEP.C", data, 2600) == -1,
+              "staged data-write failure is reported");
+        check(fat_mount(b) == 0 && fat_read_file("KEEP.C", saved, sizeof saved) == 8 &&
+              !memcmp(saved, "original", 8), "failed save preserves original file after remount");
     }
 
     /* ---------- absent mount / bad image ---------- */

@@ -59,3 +59,5 @@ void fbcon_cell_draw(u32 col, u32 row, u32 cp);
 
 /* The buffer's truth for one cell (0 where blank or out of range). */
 u32  fbcon_cell_get(u32 col, u32 row);
+void fbcon_cell_mark(u32 col, u32 row);
+void fbcon_cell_unmark(u32 col, u32 row);

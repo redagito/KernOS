@@ -15,3 +15,4 @@ size_t strlen(const char *s);
 int    strcmp(const char *a, const char *b);
 /* prefix compare over at most n bytes; equal -> 0 */
 int    strncmp(const char *a, const char *b, size_t n);
+char *strcpy(char *dst, const char *src);

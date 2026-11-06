@@ -15,7 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define LINE_MAX 40
+#define LINE_MAX 128
 
 /*
  * M6.5 (commit 2): the ksh band policy - the typed two-owner testbed.
@@ -95,6 +95,13 @@ int main(void)
        is the gate's cue, not this print. A refusal still boots: the
        OS just stays open mode. */
     claim_band(0);
+    term_clear();
+    puts("KernOS console | edit <file.c> | cc <file.c> [out.elf] | run <program>");
+    puts("Click a pane to focus it. Editor: Ctrl-S save, Ctrl-Q close.");
+    char boot_args[128];
+    if (process_args(boot_args, sizeof boot_args) >= 0 && !strcmp(boot_args, "--desktop")) {
+        if (spawn_args("edit", "HELLO.C") < 0) puts("ksh: initial editor launch failed");
+    }
 
     for (;;) {
         printf("ksh> ");
@@ -109,8 +116,35 @@ int main(void)
         if (!strcmp(line, "exit"))
             return 0;              /* crt0 -> exit(0); the kernel joins */
 
+        if (!strncmp(line, "edit ", 5)) {
+            long pid = spawn_args("edit", line + 5);
+            if (pid < 0) puts("ksh: editor launch failed");
+            else printf("ksh: editor pid=%ld\n", pid);
+            continue;
+        }
+
+        if (!strncmp(line, "cc ", 3)) {
+            long pid = spawn_args("kcc", line + 3);
+            if (pid < 0) puts("ksh: compiler launch failed");
+            else printf("ksh: compiler exit=%ld\n", waitpid(pid));
+            continue;
+        }
+
+        if (!strncmp(line, "cat ", 4)) {
+            static char contents[16384];
+            long n = file_load(line + 4, contents, sizeof contents);
+            if (n < 0) puts("ksh: file unreadable or too large");
+            else { write(1, contents, n); putchar('\n'); }
+            continue;
+        }
+
+        if (!strcmp(line, "help")) {
+            puts("edit FILE.C | cc FILE.C [OUT.ELF] | run PROGRAM [args] | cat FILE | echo TEXT | exit");
+            continue;
+        }
+
         if (!strncmp(line, "run ", 4)) {
-            const char *arg = line + 4;
+            char *arg = line + 4;
             if (!*arg) {
                 printf("ksh: run what?\n");
                 continue;
@@ -118,11 +152,12 @@ int main(void)
             /* M6.5 (commit 2): a parent makes room BEFORE spawning -
                top half becomes the parent's band, bottom goes vacant
                for the child's boot claim */
-            claim_band(1);
-            long pid = spawn(arg);
+            char *args = arg;
+            while (*args && *args != ' ') ++args;
+            if (*args) *args++ = 0;
+            long pid = spawn_args(arg, args);
             if (pid == -2) {          /* SYS_ENAME: shape refusal      */
                 printf("ksh: bad program name (%s)\n", arg);
-                claim_band(0);
                 continue;
             }
             if (pid < 0) {
@@ -130,11 +165,10 @@ int main(void)
                    the gate used to sign for EVERY refusal, including
                    its own name truncations */
                 printf("ksh: no such program (%s)\n", arg);
-                claim_band(0);
                 continue;
             }
             printf("ksh: spawned %s pid=%ld\n", arg, pid);
-            long code = wait();
+            long code = waitpid(pid);
             if (code < 0)
                 printf("ksh: wait failed\n");
             else
@@ -142,7 +176,6 @@ int main(void)
             /* the child's claim died with it; the parent re-takes
                the ksh band (served= totals for both tid printed at
                their own exits) */
-            claim_band(0);
             continue;
         }
 

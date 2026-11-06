@@ -10,6 +10,8 @@
 #     acceptable in a project whose only test is "does it boot".
 
 MAKEFLAGS += -r -R
+export TMPDIR := $(CURDIR)/build/tmp
+$(shell mkdir -p $(TMPDIR))
 
 CC      := gcc
 AS      := as
@@ -60,6 +62,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/cursor.o \
 	$(OBJ)/compo.o \
 	$(OBJ)/focus.o \
+	$(OBJ)/terminal.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
@@ -74,24 +77,38 @@ HOST_PROG := $(BUILD)/mkimage
 
 DEFAULT_GOAL := all
 
-# Fixture images are PHONY on purpose: both are MUTATED by their
-# consumers (hosttest writes KERNOS.TXT; QEMU write-gates write raw
-# LBAs + the FAT file). Regenerate deterministically each time so the
-# suites and boot gates never read a previous run's residue.
+# The host-test fixture is regenerated for every run. The development
+# disk is persistent and is recreated only by the explicit reset target.
 .PHONY: all image run clean benchdisk hosttest \
-	$(BUILD)/ahcidisk.img $(BUILD)/testdisk.img
+	$(BUILD)/testdisk.img
 
 all: image
 
-# image/run own the FAT fixture on purpose: benchdisk's fixture is
-# phony and consumer-mutated, and a bare `make image` once booted a
-# STALE pre-M6.1 userland because nothing rebuilt it (the M6.1 gate
-# caught its own green print lying). Replanting is cheap - mkfat32
-# is deterministic and self-checks its layout.
-image: $(BUILD)/kernos.img $(BUILD)/ahcidisk.img
+# Install current user binaries without replanting the user's source files.
+image: $(BUILD)/kernos.img install
 
-run: $(BUILD)/kernos.img $(BUILD)/ahcidisk.img
+.PHONY: install reset-disk
+install: $(BUILD)/ahcidisk.img $(BUILD)/fsinstall $(BUILD)/u1.elf $(BUILD)/shell.elf $(BUILD)/edit.elf $(BUILD)/kcc.elf
+	$(BUILD)/fsinstall $(BUILD)/ahcidisk.img U1.ELF $(BUILD)/u1.elf SHELL.ELF $(BUILD)/shell.elf EDIT.ELF $(BUILD)/edit.elf
+	$(BUILD)/fsinstall $(BUILD)/ahcidisk.img KCC.ELF $(BUILD)/kcc.elf LIBC.A $(BUILD)/libc.a CRT0.OBJ $(OBJ)/lc_crt0.o \
+		STDIO.H libc/include/stdio.h STDLIB.H libc/include/stdlib.h STRING.H libc/include/string.h \
+		UNISTD.H libc/include/unistd.h STDDEF.H include/user/stddef.h STDINT.H include/user/stdint.h \
+		STDBOOL.H include/user/stdbool.h STDARG.H vendor/tcc-0.9.27/include/stdarg.h
+
+# Explicitly destructive: normal image/run never recreate this disk.
+reset-disk: $(BUILD)/mkfat32 $(BUILD)/u1.elf $(BUILD)/shell.elf
+	$(BUILD)/mkfat32 $(BUILD)/ahcidisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
+	$(MAKE) install
+
+$(BUILD)/fsinstall: tools/fsinstall.c tests/blk_host.c kernel/fat32.c kernel/fat32.h $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -Itests -o $@ tools/fsinstall.c tests/blk_host.c kernel/fat32.c
+
+run: image
 	qemu-system-x86_64 -drive format=raw,file=$(BUILD)/kernos.img,if=ide \
+		-device ich9-ahci,id=ahci \
+		-drive if=none,id=files,format=raw,file=$(BUILD)/ahcidisk.img \
+		-device ide-hd,drive=files,bus=ahci.0 \
 		-serial stdio -display none -monitor none
 
 # -----
@@ -134,8 +151,11 @@ $(BUILD)/mkfat32: tools/mkfat32.c include/kernel/bench.h
 .PHONY: benchdisk hosttest
 benchdisk: $(BUILD)/ahcidisk.img
 
-$(BUILD)/ahcidisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf $(BUILD)/shell.elf
-	$(BUILD)/mkfat32 $(BUILD)/ahcidisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
+$(BUILD)/ahcidisk.img:
+	@if [ ! -f $@ ]; then \
+		$(MAKE) $(BUILD)/mkfat32 $(BUILD)/u1.elf $(BUILD)/shell.elf && \
+		$(BUILD)/mkfat32 $@ $(BUILD)/u1.elf $(BUILD)/shell.elf; \
+	fi
 
 $(BUILD)/testdisk.img: $(BUILD)/mkfat32 $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/mkfat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
@@ -166,6 +186,9 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_format $(BUILD)/test_font $(BUILD)/test_input \
 	$(BUILD)/test_utf8 \
 	$(BUILD)/test_pmm \
+	$(BUILD)/test_editor $(BUILD)/test_terminal \
+	$(BUILD)/test_kcc_arena \
+	$(BUILD)/test_mouse \
 	$(BUILD)/font.psf2 $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
@@ -174,6 +197,29 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_input
 	$(BUILD)/test_utf8
 	$(BUILD)/test_pmm
+	$(BUILD)/test_editor
+	$(BUILD)/test_terminal
+	$(BUILD)/test_kcc_arena
+	$(BUILD)/test_mouse
+
+$(BUILD)/test_mouse: tests/test_mouse.c kernel/arch/x86_64/cursor.c include/kernel/ps2_mouse.h $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -o $@ tests/test_mouse.c kernel/arch/x86_64/cursor.c
+
+$(BUILD)/kcc_arena_host.o: kcc/arena.c $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Dmalloc=kcc_malloc -Dfree=kcc_free -Drealloc=kcc_realloc -Dcalloc=kcc_calloc -c -o $@ $<
+
+$(BUILD)/test_kcc_arena: tests/test_kcc_arena.c $(BUILD)/kcc_arena_host.o $(MAKEFILE_LIST)
+	$(CC) $(HOST_CFLAGS) -o $@ tests/test_kcc_arena.c $(BUILD)/kcc_arena_host.o
+
+$(BUILD)/test_editor: tests/test_editor.c kernel/user/editor_model.h $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Ikernel -o $@ tests/test_editor.c
+
+$(BUILD)/test_terminal: tests/test_terminal.c kernel/arch/x86_64/terminal.c kernel/utf8.c $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -o $@ tests/test_terminal.c kernel/arch/x86_64/terminal.c kernel/utf8.c
 
 # vsnprintf is libc's one portable-holy module: it answers for itself
 # on the host, so the boot gate never has to prove formatting.
@@ -292,6 +338,10 @@ $(OBJ)/console.o: kernel/arch/x86_64/console.c kernel/arch/x86_64/console.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 
+$(OBJ)/terminal.o: kernel/arch/x86_64/terminal.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
 $(OBJ)/mouse.o: kernel/arch/x86_64/mouse.c kernel/arch/x86_64/mouse.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
@@ -379,7 +429,14 @@ UFLAGS := -std=c11 -m64 -ffreestanding -fno-builtin -fno-stack-protector \
 LIBC_SRC := libc/src/crt0.c libc/src/format.c libc/src/stdio.c \
 	libc/src/string.c libc/src/stdlib.c libc/src/unistd.c
 
-LIBC_OBJ := $(patsubst libc/src/%.c,$(OBJ)/lc_%.o,$(LIBC_SRC))
+LIBC_OBJ := $(patsubst libc/src/%.c,$(OBJ)/lc_%.o,$(LIBC_SRC)) $(OBJ)/tcc_va.o
+
+$(OBJ)/tcc_va.o: vendor/tcc-0.9.27/lib/va_list.c
+	@mkdir -p $(@D)
+	$(CC) $(UFLAGS) -c -o $@ $<
+
+$(BUILD)/kcc.elf: $(BUILD)/libc.a kernel/user/prog.ld kernel/elf64.c include/kernel/elf64.h kernel/arch/x86_64/proc.h include/kernel/types.h $(wildcard kcc/*.c kcc/*.S kcc/*.sh kcc/include/*.h kcc/include/sys/*.h) $(wildcard vendor/tcc-0.9.27/*.c vendor/tcc-0.9.27/*.h) $(MAKEFILE_LIST)
+	sh kcc/build.sh
 
 $(OBJ)/lc_%.o: libc/src/%.c
 	@mkdir -p $(@D)
@@ -402,11 +459,18 @@ $(OBJ)/shell.o: kernel/user/shell.c include/kernel/syscall.h \
 
 # Every user program links with the ONE shared script (prog.ld):
 # same load window, same entry discipline, same bss contract.
-$(BUILD)/u1.elf: $(OBJ)/user1.o $(BUILD)/libc.a kernel/user/prog.ld
-	$(LD) -nostdlib -T kernel/user/prog.ld -o $@ $(OBJ)/user1.o $(BUILD)/libc.a
+$(BUILD)/u1.elf: $(OBJ)/user1.o $(BUILD)/libc.a kernel/user/prog.ld $(MAKEFILE_LIST)
+	$(LD) -s -nostdlib -T kernel/user/prog.ld -o $@ $(OBJ)/user1.o $(BUILD)/libc.a
 
-$(BUILD)/shell.elf: $(OBJ)/shell.o $(BUILD)/libc.a kernel/user/prog.ld
-	$(LD) -nostdlib -T kernel/user/prog.ld -o $@ $(OBJ)/shell.o $(BUILD)/libc.a
+$(BUILD)/shell.elf: $(OBJ)/shell.o $(BUILD)/libc.a kernel/user/prog.ld $(MAKEFILE_LIST)
+	$(LD) -s -nostdlib -T kernel/user/prog.ld -o $@ $(OBJ)/shell.o $(BUILD)/libc.a
+
+$(OBJ)/edit.o: kernel/user/edit.c kernel/user/editor_model.h
+	@mkdir -p $(@D)
+	$(CC) $(UFLAGS) -c -o $@ $<
+
+$(BUILD)/edit.elf: $(OBJ)/edit.o $(BUILD)/libc.a kernel/user/prog.ld $(MAKEFILE_LIST)
+	$(LD) -s -nostdlib -T kernel/user/prog.ld -o $@ $(OBJ)/edit.o $(BUILD)/libc.a
 
 $(OBJ)/swtch.o: kernel/arch/x86_64/swtch.s
 	@mkdir -p $(@D)
@@ -435,4 +499,5 @@ $(OBJ)/stage2.o: boot/stage2.s
 -include $(OBJ)/*.d
 
 clean:
-	rm -rf $(BUILD) $(OBJ)
+	rm -rf $(OBJ)
+	find $(BUILD) -type f ! -name ahcidisk.img ! -name ahcidisk.before-files.img -delete

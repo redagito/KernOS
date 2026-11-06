@@ -41,6 +41,13 @@
      or band not fully           only ever holds bands the face owns
      inside the face                                                     */
 #define SYSCALL_SURFACE 8    /* surface(row,h,claim) -> tid/geometry   */
+#define SYSCALL_FILE_LOAD 9 /* name, buffer, capacity; null/0 queries size */
+#define SYSCALL_FILE_SAVE 10 /* name, buffer, size; create or replace */
+#define SYSCALL_SPAWN_ARGS 11 /* name, argument string (max 127 bytes) */
+#define SYSCALL_ARGS 12      /* buffer, capacity -> argument length */
+#define SYSCALL_TERM 13      /* operation, col, row: clear/move/query */
+#define SYSCALL_WAITPID 14   /* wait for a specified child */
+#define SYSCALL_PAINT 15     /* buffer, length: surface text without serial echo */
 
 #define STDIN_FILENO  0      /* the keyboard ring (M5.5)         */
 #define STDOUT_FILENO 1      /* v0: COM1 console                */

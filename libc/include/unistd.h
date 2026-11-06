@@ -37,5 +37,16 @@ long    surface_claim(long row, long h, long claim);
 long    face_geometry(void);      /* probe: rows<<16 | cols of the
                                      fb face; 0 = none (VGA-only boot) */
 
+ssize_t file_load(const char *name, void *buf, size_t cap);
+ssize_t file_save(const char *name, const void *buf, size_t size);
+long spawn_args(const char *name, const char *args);
+long process_args(char *buf, size_t cap);
+long term_clear(void);
+long term_move(long col, long row);
+long term_geometry(void);
+long term_caret(void);
+long waitpid(long pid);
+long term_paint(const char *buf, size_t len);
+
 #define STDIN_FILENO   0     /* the keyboard ring (M5.5)             */
 #define STDOUT_FILENO  1     /* the console (COM1 line printer)      */

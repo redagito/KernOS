@@ -28,6 +28,7 @@ static volatile u8 head, tail;
 static volatile u64 events;
 
 static volatile u8 shift_down;
+static u8 ctrl_down;
 static u8 extended_pending;
 
 /* Set-1 make codes <= 0x7F we translate. Everything else maps to 0. */
@@ -57,6 +58,7 @@ void kbd_init(void)
     head = tail = 0;
     events = 0;
     shift_down = 0;
+    ctrl_down = 0;
     extended_pending = 0;
     irq_set_handler(1, kbd_handler);
     irq_enable(1);
@@ -95,11 +97,22 @@ static void kbd_handler(struct trapframe *tf)
     u8 sc = in8(KBD_DATA);
 
     /* E0/E1 prefixes: skip their follow-up byte (arrows, etc.). */
-    if (extended_pending) { extended_pending = 0; return; }
+    if (extended_pending) {
+        extended_pending = 0;
+        if (sc == 0x1D || sc == 0x9D) { ctrl_down = !(sc & 0x80); return; }
+        if (sc & 0x80) return;
+        char nav = sc == 0x4B ? (char)0x80 : sc == 0x4D ? (char)0x81 :
+                   sc == 0x48 ? (char)0x82 : sc == 0x50 ? (char)0x83 :
+                   sc == 0x47 ? (char)0x84 : sc == 0x4F ? (char)0x85 :
+                   sc == 0x53 ? (char)0x86 : 0;
+        if (nav) push(nav);
+        return;
+    }
     if (sc == 0xE0 || sc == 0xE1) { extended_pending = 1; return; }
 
     u8 released = sc & 0x80;
     u8 plain    = sc & 0x7F;
+    if (plain == 0x1D) { ctrl_down = !released; return; }
 
     if (plain == 0x2A || plain == 0x36) {   /* both shift keys */
         shift_down = !released;
@@ -111,6 +124,14 @@ static void kbd_handler(struct trapframe *tf)
         char c = code_ascii[plain];
         if (c >= 'a' && c <= 'z' && shift_down)
             c = (char)(c - 'a' + 'A');
+        else if (c && shift_down) {
+            const char *plain_chars = "1234567890-=[];'/.,`\\";
+            const char *shift_chars = "!@#$%^&*()_+{}:\"?><~|";
+            for (int i = 0; plain_chars[i]; ++i)
+                if (c == plain_chars[i]) { c = shift_chars[i]; break; }
+        }
+        if (ctrl_down && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+            c &= 31;
         if (c) push(c);
     }
 }

@@ -31,3 +31,4 @@ void console_puts(const char *s);
 void console_puts_hex(u64 v);   /* 16 hex digits, no 0x prefix      */
 
 u64  console_mirrored(void);    /* mirrored bytes since console_init */
+void console_user_surfaces(void);

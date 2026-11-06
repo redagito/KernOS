@@ -1,6 +1,16 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+
+int snprintf(char *out, size_t cap, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(out, cap, fmt, ap);
+    va_end(ap);
+    return n;
+}
 
 /*
  * vsnprintf - the portable core of the printf family, host-testable.

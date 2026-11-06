@@ -1,5 +1,6 @@
 #include <kernel/types.h>
 #include <kernel/input.h>
+#include <kernel/ps2_mouse.h>
 #include "mouse.h"
 #include "irq.h"
 #include "sched.h"
@@ -73,10 +74,8 @@ static void mouse_handler(struct trapframe *tf)
         }
         /* 9-bit signed deltas: sign bit 4/5 of byte 0 + 8-bit body */
         {
-            i16 dx = (i16)(u16)pack[1];
-            i16 dy = (i16)(u16)pack[2];
-            if (pack[0] & 0x10) dx = (i16)(dx - 256);
-            if (pack[0] & 0x20) dy = (i16)(dy - 256);
+            i16 dx, dy;
+            ps2_mouse_motion(pack, &dx, &dy);
             u8 now_buttons = (u8)(pack[0] & 0x07);
             u8 prev = buttons;
             buttons = now_buttons;
@@ -106,6 +105,7 @@ static void mouse_handler(struct trapframe *tf)
                INPUT carries the button state is invisible here -
                the wakes ride the packet, not the transition. */
             sched_wake_all(SCHED_WQ_FOCUS);
+            sched_wake_all(SCHED_WQ_KBD);
         }
     }
 }

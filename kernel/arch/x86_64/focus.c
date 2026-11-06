@@ -4,6 +4,7 @@
 #include "fbcon.h"
 #include "cursor.h"
 #include "console.h"
+#include "terminal.h"
 
 /*
  * focus.c (M6.5 commit 1) - the substrate. The whole state machine
@@ -76,6 +77,21 @@ u64 focus_claims(void)
 
 int focus_owner_tid(void) { return owner; }
 
+void focus_thread_start(int tid)
+{
+    if (tid > 0 && tid < FOCUS_MAX_TIDS) served_by[tid] = 0;
+}
+
+int focus_band(int tid, int *row, int *height)
+{
+    if (tid < 1 || tid >= FOCUS_MAX_TIDS) return 0;
+    for (int i = 0; i < FOCUS_MAX_CLAIMS; ++i)
+        if (claims[i].tid == tid) {
+            *row = claims[i].row; *height = claims[i].h; return 1;
+        }
+    return 0;
+}
+
 int focus_allows_read(int tid)
 {
     /* OPEN mode serves everyone; owned mode serves exactly one. */
@@ -99,7 +115,7 @@ long focus_surface_call(long row, long h, long claim, int tid)
                                                  claims: intent required
                                                  (the probe is row<0)  */
     if ((u64)row >= (u64)fbcon_rows() ||
-        (u64)(row + h) > (u64)fbcon_rows())
+        (u64)h > (u64)fbcon_rows() - (u64)row)
         return (long)(u64)-1;                 /* band not on face  */
 
     /* Replace this tid's own claim first; else take an empty slot.
@@ -117,9 +133,11 @@ long focus_surface_call(long row, long h, long claim, int tid)
     claims[slot].tid = tid;
     claims[slot].row = (int)row;
     claims[slot].h   = (int)h;
+    terminal_reset(tid);
     owner = tid;                              /* claim = take focus */
     sched_wake_all(SCHED_WQ_FOCUS);           /* parked readers
                                                  re-check doctrine */
+    sched_wake_all(SCHED_WQ_KBD);
 
     console_puts("focus: claim owner=");
     putdec((u64)tid);

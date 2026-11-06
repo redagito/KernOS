@@ -19,6 +19,7 @@ int printf(const char *fmt, ...);
 int putchar(int c);        /* v0 has no stdin; stdout only */
 int puts(const char *s);   /* appends a newline, like everyone's */
 int vsnprintf(char *out, size_t cap, const char *fmt, va_list ap);
+int snprintf(char *out, size_t cap, const char *fmt, ...);
 /* C99 truncation semantics: at most cap-1 bytes plus NUL; the return
    is the length it WOULD have written so callers can size honestly.
    cap == 0: out may be NULL, nothing is written, return is still the

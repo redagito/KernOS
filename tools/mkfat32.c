@@ -41,6 +41,14 @@ static u8 img[TOTAL_SECTORS * SECTOR];   /* 128 MiB, zeroed   */
 
 static u32 lba_off(u32 lba) { return lba * SECTOR; }
 
+static u32 program_cluster(u32 index, u32 marker, u32 write_marker)
+{
+    u32 c = 5 + index;
+    if (c >= marker) ++c;
+    if (c >= write_marker) ++c;
+    return c;
+}
+
 static void wr16(u8 *base, u32 o, u16 v)
 {
     base[o]     = v & 0xFF;
@@ -223,10 +231,8 @@ int main(int argc, char **argv)
         free(u1); free(sh);
         return 1;
     }
-    if (marker_clus < 5 + u1_clusters + sh_clusters) {
-        fprintf(stderr, "mkfat32: marker LBA %u collides with the program "
-                        "chains (%u + %u clusters, first cluster 5)\n",
-                BENCH_MARKER_LBA, u1_clusters, sh_clusters);
+    if (marker_clus < 5) {
+        fprintf(stderr, "mkfat32: marker overlaps fixed fixture files\n");
         free(u1); free(sh);
         return 1;
     }
@@ -282,8 +288,8 @@ int main(int argc, char **argv)
     u8 *fsi = img + lba_off(1);
     wr32(fsi, 0x000, 0x41615252);
     wr32(fsi, 0x1E8, 0x61417272);
-    wr32(fsi, 0x1EC, clusters - 3 - u1_clusters - sh_clusters); /* 2..4+progs */
-    wr32(fsi, 0x1F0, 5 + u1_clusters + sh_clusters);           /* next free  */
+    wr32(fsi, 0x1EC, 0xffffffffu); /* allocator maintains no free-count hint */
+    wr32(fsi, 0x1F0, 0xffffffffu);
 
     /* ---- backup boot sector ------------------------------------------ */
     memcpy(img + lba_off(6), img, SECTOR);
@@ -296,9 +302,15 @@ int main(int argc, char **argv)
         wr32(T, 2 * 4, 0x0FFFFFFFu);     /* root dir: one cluster          */
         wr32(T, 3 * 4, 0x0FFFFFFFu);     /* KERNOS.TXT                     */
         wr32(T, 4 * 4, 0x0FFFFFFFu);     /* VERYLONGNAME.TXT               */
-        for (u32 c = 5; c < 5 + u1_clusters + sh_clusters - 1; ++c)
-            wr32(T, c * 4, c + 1);       /* program chains (u1 then shell) */
-        wr32(T, (4 + u1_clusters + sh_clusters) * 4, 0x0FFFFFFFu); /* last EOC */
+        for (u32 i = 0; i < u1_clusters + sh_clusters; ++i) {
+            u32 c = program_cluster(i, marker_clus, rb_clus);
+            u32 next = (i + 1 == u1_clusters || i + 1 == u1_clusters + sh_clusters) ?
+                       0x0fffffffu : program_cluster(i + 1, marker_clus, rb_clus);
+            wr32(T, c * 4, next);
+        }
+        /* Raw boot self-test sectors must never be allocated to files. */
+        wr32(T, marker_clus * 4, 0x0FFFFFF7u);
+        wr32(T, rb_clus * 4, 0x0FFFFFF7u);
     }
 
     /* ---- root directory ---------------------------------------------- */
@@ -377,7 +389,7 @@ int main(int argc, char **argv)
         memset(e, 0, 32);
         entry_name83(e, "SHELL", "ELF");
         e[11]  = 0x20;
-        e[0x1A] = (u8)(5 + u1_clusters);     /* chains in right behind u1 */
+        wr16(e, 0x1A, program_cluster(u1_clusters, marker_clus, rb_clus));
         wr32(e, 0x1C, sh_len);
     }
     /* slot 7 onward: zero (terminator covered by the zeroed image) */
@@ -396,7 +408,7 @@ int main(int argc, char **argv)
     u32 u1_left = u1_len;
     for (u32 c = 0; c < u1_clusters; ++c) {
         u32 chunk = u1_left > SECTOR ? SECTOR : u1_left;
-        memcpy(img + lba_off(data_start + 3 + c), u1 + c * SECTOR, chunk);
+        memcpy(img + lba_off(data_start + program_cluster(c, marker_clus, rb_clus) - 2), u1 + c * SECTOR, chunk);
         u1_left -= chunk;
     }
 
@@ -404,7 +416,7 @@ int main(int argc, char **argv)
     u32 sh_left = sh_len;
     for (u32 c = 0; c < sh_clusters; ++c) {
         u32 chunk = sh_left > SECTOR ? SECTOR : sh_left;
-        memcpy(img + lba_off(data_start + 3 + u1_clusters + c),
+        memcpy(img + lba_off(data_start + program_cluster(u1_clusters + c, marker_clus, rb_clus) - 2),
                sh + c * SECTOR, chunk);
         sh_left -= chunk;
     }
@@ -426,7 +438,7 @@ int main(int argc, char **argv)
     {
         struct { const char *b, *x; u32 *lenp; u32 first; u32 slot; } planted[2] = {
             { "U1",    "ELF", &u1_len, 5,               5 },
-            { "SHELL", "ELF", &sh_len, 5 + u1_clusters, 6 },
+            { "SHELL", "ELF", &sh_len, program_cluster(u1_clusters, marker_clus, rb_clus), 6 },
         };
         int bad = 0;
         for (int i = 0; i < 2; ++i) {

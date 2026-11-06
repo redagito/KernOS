@@ -173,4 +173,8 @@ u64  sched_switches(void);
 
 /* Thread id of the calling thread (v0 syscall ABI: pid == tid). */
 u64  sched_tid(void);
+void sched_set_args(int tid, const char *args);
+long sched_get_args(char *buf, u64 cap);
+int sched_parent_tid(void);
+int sched_wait_child(int tid, u64 *code);
 

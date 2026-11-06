@@ -9,6 +9,8 @@
 #include "console.h"
 #include "cursor.h"
 #include "focus.h"
+#include "terminal.h"
+#include "proc.h"
 
 /*
  * The 0x80 syscall gate (M5.1+, docs/syscall-abi.md).
@@ -68,6 +70,8 @@ static int page_u_ok(u64 va)
 /* Full [va, va+n) N-page check; also refuses rollover. */
 static int user_ptr_ok(u64 va, u64 n)
 {
+    if (n && (va < USER_WINDOW_LO || va >= USER_STACK_VA || n > USER_STACK_VA - va))
+        return 0;
     if (n == 0)
         return 1;
     if (va > (u64)-1 - n)
@@ -84,6 +88,27 @@ static int user_ptr_ok(u64 va, u64 n)
 }
 
 static u64 user_exits;                     /* gate evidence for main.c */
+
+static int user_string(struct trapframe *tf, u64 va, char *out, u64 cap)
+{
+    if (!va) return -1;
+    for (u64 i = 0; i < cap; ++i) {
+        if ((tf->cs & 3) == 3 && !user_ptr_ok(va + i, 1)) return -1;
+        out[i] = ((const char *)va)[i];
+        if (!out[i]) return 0;
+    }
+    return -1;
+}
+
+/* Apply motion and clicks in delivery order, so later motion cannot
+   retroactively move an earlier button press. */
+static void pointer_events(const struct input_event *ev, int n)
+{
+    for (int i = 0; i < n; ++i) {
+        cursor_apply(ev + i, 1);
+        focus_clicks(ev + i, 1);
+    }
+}
 
 u64 sysc_user_exits(void)
 {
@@ -130,7 +155,7 @@ void syscall_dispatch(struct trapframe *tf)
             break;
         }
         for (u64 i = 0; i < n; ++i)
-            console_putc((char)buf[i]);
+            terminal_putc((int)sched_tid(), sched_parent_tid(), (char)buf[i]);
         r = n;
         break;
     }
@@ -195,8 +220,7 @@ void syscall_dispatch(struct trapframe *tf)
                     struct input_event wev[8];
                     int wn = input_pull(wev, 8);
                     if (wn > 0) {
-                        cursor_apply(wev, wn);
-                        focus_clicks(wev, wn);
+                        pointer_events(wev, wn);
                         continue;         /* re-check at the loop head:
                                              a click may have re-homed */
                     }
@@ -232,8 +256,7 @@ void syscall_dispatch(struct trapframe *tf)
             struct input_event pev[8];
             int pn = input_pull(pev, 8);
             if (pn > 0) {
-                cursor_apply(pev, pn);
-                focus_clicks(pev, pn);
+                pointer_events(pev, pn);
                 continue;                 /* re-check: focus may have
                                              flipped to THIS reader */
             }
@@ -243,7 +266,14 @@ void syscall_dispatch(struct trapframe *tf)
         break;
     }
 
-    case SYSCALL_SPAWN: {
+    case SYSCALL_SPAWN:
+    case SYSCALL_SPAWN_ARGS: {
+        char args[128] = {0};
+        if (tf->rax == SYSCALL_SPAWN_ARGS &&
+            user_string(tf, tf->rsi, args, sizeof args) < 0) {
+            r = (u64)SYS_EINVAL;
+            break;
+        }
         /* arg1 = user pointer to a NUL-terminated program name.
            Resolves through the FAT fixture to an ELF, which the
            ordinary loader plans and the scheduler slots as OUR child.
@@ -261,7 +291,7 @@ void syscall_dispatch(struct trapframe *tf)
            (each byte's page re-checked; a shorter buffer cannot fault
            what we never touch) */
         while (nlen < sizeof name - 1) {
-            if ((tf->cs & 3) == 3 && !user_ptr_ok((u64)(p + nlen), 1)) {
+            if ((tf->cs & 3) == 3 && !user_ptr_ok((u64)p, 1)) {
                 p = 0;
                 break;
             }
@@ -319,13 +349,14 @@ void syscall_dispatch(struct trapframe *tf)
         }
         name[nlen] = '\0';
 
-        static u8 spawn_img[16384];
+        static u8 spawn_img[512 * 1024];
         long got = fat_read_file(name, spawn_img, sizeof spawn_img);
         if (got <= 64) {
             r = (u64)SYS_EINVAL;      /* missing file = one error, v0 */
             break;
         }
         int tid = thread_spawn_user(name, spawn_img, (u64)got);
+        if (tid > 0) sched_set_args(tid, args);
         r = tid > 0 ? (u64)tid : (u64)SYS_EINVAL;
         break;
     }
@@ -353,14 +384,56 @@ void syscall_dispatch(struct trapframe *tf)
         /* M6.3: the SAME consumer decides where the pointer is - the
            ring stays SPSC (cursor_apply, like input_pull, runs IF
            off on the caller's stack; no second mind ever reads it). */
-        cursor_apply(buf, (int)r);
+        pointer_events(buf, (int)r);
         /* M6.5: the clicked-through batch is also the focus COMMAND
            channel - button presses hit-test the claim bands and may
            re-home the owner (named lines on transitions only; the
            event ring itself is untouched). */
-        focus_clicks(buf, (long)r);
         break;
     }
+
+    case SYSCALL_FILE_LOAD:
+    case SYSCALL_FILE_SAVE: {
+        char name[13];
+        u64 size = tf->rdx;
+        if (size > 512 * 1024 ||
+            user_string(tf, tf->rdi, name, sizeof name) < 0 ||
+            (size && (!tf->rsi || ((tf->cs & 3) == 3 &&
+                                   !user_ptr_ok(tf->rsi, size))))) {
+            r = (u64)SYS_EINVAL;
+            break;
+        }
+        if (tf->rax == SYSCALL_FILE_LOAD)
+            r = (!tf->rsi && !size) ? (u64)fat_file_size(name) :
+                (u64)fat_read_file(name, (void *)tf->rsi, (u32)size);
+        else
+            r = (u64)fat_save_file(name, (const void *)tf->rsi, (u32)size);
+        break;
+    }
+
+    case SYSCALL_ARGS:
+        if (!tf->rdi || tf->rsi > 128 || !tf->rsi ||
+            ((tf->cs & 3) == 3 && !user_ptr_ok(tf->rdi, tf->rsi)))
+            r = (u64)SYS_EINVAL;
+        else r = (u64)sched_get_args((char *)tf->rdi, tf->rsi);
+        break;
+
+    case SYSCALL_PAINT:
+        if (!tf->rdi || tf->rsi > 4096 ||
+            ((tf->cs & 3) == 3 && !user_ptr_ok(tf->rdi, tf->rsi)) ||
+            terminal_control((int)sched_tid(), sched_parent_tid(), 2, 0, 0) < 0)
+            r = (u64)SYS_EINVAL;
+        else {
+            for (u64 i = 0; i < tf->rsi; ++i)
+                terminal_paintc((int)sched_tid(), sched_parent_tid(), ((const char *)tf->rdi)[i]);
+            r = tf->rsi;
+        }
+        break;
+
+    case SYSCALL_TERM:
+        r = (u64)terminal_control((int)sched_tid(), sched_parent_tid(),
+                                 tf->rdi, tf->rsi, tf->rdx);
+        break;
 
     case SYSCALL_SURFACE: {
         /* M6.5 (commit 1): the namespace of who owns the keyboard.
@@ -383,12 +456,19 @@ void syscall_dispatch(struct trapframe *tf)
         break;
     }
 
-    case SYSCALL_WAIT: {
+    case SYSCALL_WAIT:
+    case SYSCALL_WAITPID: {
         /* wait(): block until a child of ours has exited; return its
            exit code; -1 when we have no children at all. pid-specific
            waits arrive with real fork - the shell v0 runs one job. */
         for (;;) {
             u64 code = 0;
+            if (tf->rax == SYSCALL_WAITPID) {
+                int state = sched_wait_child((int)tf->rdi, &code);
+                if (state != 0) { r = state > 0 ? code : (u64)SYS_EINVAL; break; }
+                sched_block(SCHED_WQ_CHILD);
+                continue;
+            }
             if (sched_collect_child(&code)) {
                 r = code;
                 break;

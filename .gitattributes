@@ -1,0 +1,7 @@
+# Shell build steps run inside Linux containers, including Windows checkouts.
+*.sh text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+# Keep the imported compiler sources and licensing text in upstream form.
+vendor/** -text

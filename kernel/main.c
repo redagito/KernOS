@@ -778,8 +778,12 @@ void kernel_main(void)
         console_puts_hex((u64)got);
         console_puts("\n");
         int stid = -1;
-        if (got > 64)
+        if (got > 64) {
+            __asm__ volatile("cli" ::: "memory");
             stid = thread_spawn_user("shell", shell_img, (u64)got);
+            if (stid > 0) sched_set_args(stid, "--desktop");
+            __asm__ volatile("sti" ::: "memory");
+        }
         if (stid > 0) {
             console_puts("gate5: shell live tid=");
             console_puts_hex((u64)stid);

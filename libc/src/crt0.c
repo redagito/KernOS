@@ -2,10 +2,10 @@
 
 /*
  * crt0.c - the C runtime stub. The kernel set up everything a user
- * process is owed: CR3 space, CPL3 selectors, 16 KiB of zeroed stack
- * ending at 0x600000, and the entry VA from the ELF header. There is
- * no argc/argv until exec grows an environment (M5.5); main() takes
- * no arguments, and its return value IS the exit code.
+ * process is owed: CR3 space, CPL3 selectors, a 64 KiB stack ending at
+ * 0x600000, and SysV-aligned entry at RSP 0x5ffff8. main() takes no
+ * arguments; process_args retrieves the explicit command line, and
+ * main's return value is the exit code.
  */
 
 int main(void);

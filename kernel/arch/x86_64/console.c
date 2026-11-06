@@ -22,6 +22,7 @@
 
 static u8  face = FACE_SERIAL;
 static u64 mirrored;              /* bytes handed to a visible face */
+void console_user_surfaces(void) { face = FACE_SERIAL; }
 
 void console_init(void)
 {

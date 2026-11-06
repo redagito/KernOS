@@ -28,8 +28,10 @@ static u64  saved_rev;                /* backdrop rev the save is from */
 static void clamp_pos(void)
 {
     u32 w = fb_width(), h = fb_height();
-    if (cx > w - CUR_W) cx = (w >= CUR_W) ? w - CUR_W : 0;
-    if (cy > h - CUR_H) cy = (h >= CUR_H) ? h - CUR_H : 0;
+    u32 max_x = w >= CUR_W ? w - CUR_W : 0;
+    u32 max_y = h >= CUR_H ? h - CUR_H : 0;
+    if (cx > max_x) cx = max_x;
+    if (cy > max_y) cy = max_y;
 }
 
 static void save_region(void)
@@ -136,8 +138,9 @@ void cursor_apply(const struct input_event *ev, int n)
         else if (ev[i].type == IN_EVT_RELY) dy += ev[i].value;
     }
     if (dx == 0 && dy == 0) return;
-    nx = (u32)((long)cx + dx);
-    ny = (u32)((long)cy + dy);
+    long sx = (long)cx + dx, sy = (long)cy + dy;
+    nx = sx < 0 ? 0 : (u32)sx;
+    ny = sy < 0 ? 0 : (u32)sy;
     move_to(nx, ny);
 }
 

@@ -14,7 +14,8 @@
  *     keypress is never split across records, and seq is a kernel-owned
  *     monotonic delivery number; dropped events (full ring) are counted
  *     in input_dropped(), never silently skipped in seq;
- *   - REL events carry one signed 16-bit delta each (x and y are two
+ *   - REL events use screen coordinates: X positive right, Y positive down.
+ *     They carry one signed 16-bit delta each (x and y are two
  *     events - the PS/2 packet's two halves land in order);
  *   - KEY events are POST-translation keypresses only (the same ASCII
  *     the text channel saw); break codes and prefixes never enter;

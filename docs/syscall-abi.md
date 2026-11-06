@@ -55,6 +55,60 @@ v0 rules beyond the table:
 | 6 | `wait`  | —                           | a child's exit code, or -1    |
 | 7 | `input` | buf, max (≤ 64 events/call) | events drained now, or -1     |
 | 8 | `surface`| row, h, claim (1)          | claim: caller's tid; probe (row<0): rows<<16\|cols; -1 refused |
+| 9 | `file_load` | name, buf, cap | whole file bytes; null buf + zero cap queries size; -1 refused |
+| 10 | `file_save` | name, buf, size | bytes saved; creates/replaces/truncates; -1 refused |
+| 11 | `spawn_args` | name, args | child tid, or negative error |
+| 12 | `args` | buf, cap | argument string length, or -1 |
+| 13 | `term` | op, col, row | surface clear/move/geometry/caret; -1 refused |
+| 14 | `waitpid` | child tid | that child's exit code; blocks; -1 invalid child |
+| 15 | `paint` | buf, n | surface bytes painted without serial echo; -1 refused |
+
+### Development workflow extension (2026-11-06)
+
+The new calls append to the existing number space; old numbers are not
+repurposed. File names are NUL-terminated, case-insensitive root 8.3 names.
+Buffers are checked in the caller's mapped user window. File calls are
+bounded to 512 KiB and are synchronous whole-file operations, not new fd
+semantics. `file_load` refuses a capacity smaller than the file and rejects
+truncated chains. `file_save` stages a fresh chain, commits the root entry,
+then frees the old chain; it preserves the preceding entry on an ordinary
+allocation/data-write failure. It is not a power-loss journal.
+
+`spawn_args` copies at most 127 argument bytes plus NUL into the child
+record. `args` requires capacity for the full string plus NUL. The CRT
+still calls `main(void)`; programs retrieve arguments explicitly. `waitpid`
+prevents a background editor's exit from being mistaken for a compiler's
+completion.
+
+`term`: op 0 clears the calling program's band, op 1 moves its cursor to
+zero-based `(col,row)` within that band, op 2 returns `height<<16|cols`,
+and op 3 highlights its current caret cell. An unclaimed child inherits its
+parent's output band (compiler and compiled-program output go to the
+console). Each band has independent cursor, decoder, and scrolling state.
+After user surfaces start, kernel diagnostics remain on serial rather than
+painting over the editor. `write(1)` mirrors to serial and the applicable
+user band. `paint` accepts up to 4096 bytes without serial mirroring for
+incremental editor redraws. It requires an available surface.
+
+Keyboard read retains focus routing. Navigation keys are single bytes:
+0x80 left, 0x81 right, 0x82 up, 0x83 down, 0x84 home, 0x85 end, 0x86
+delete. Ctrl-letter produces the conventional byte 1..26. Mouse packets
+wake both focus and keyboard waiters; motion and presses are applied in
+delivery order so a click uses its own position.
+
+REL motion is in screen coordinates: X increases rightwards and Y increases
+downwards. The PS/2 driver converts its positive-up wire Y before publishing
+events. QMP test injection uses ordinary screen Y without compensating
+negation. Cursor motion saturates at the screen edges before unsigned
+conversion, so crossing the left/top edge cannot wrap to the right/bottom.
+
+User program spans may cover 480 pages (1920 KiB) and have a 64 KiB stack
+ending at 0x600000. C entry starts at RSP 0x5ffff8, as a SysV function
+expects RSP modulo 16 equal to 8. The scheduler eagerly saves/restores
+x87/MMX/SSE state with FXSAVE/FXRSTOR; the kernel stays SSE-free. Syscall
+dispatch enters with IF off; a blocking syscall explicitly schedules away
+and resumes its parked kernel frame with IF still off. Long synchronous
+file operations do not keep the PIT running within the dispatcher.
 
 v0 specifics worth stating:
 

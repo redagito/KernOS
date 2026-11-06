@@ -5,8 +5,8 @@
 /*
  * Process model (M5.3): real address spaces built from real binaries.
  *
- * Layout decision (frozen): user code+data lives at 0x400000 inside the
- * identity 2-MiB slot i2=2; the user stack (16 KiB) ends at 0x600000,
+ * Layout decision: user code+data lives at 0x400000 inside the
+ * identity 2-MiB slot i2=2; the user stack (64 KiB) ends at 0x600000,
  * the top of the same slot. The per-process CR3 reuses the boot
  * hierarchy (clone PML4 -> clone PDPT -> clone PD) with one patch: PD
  * slot 2 turns the 2-MiB identity leaf into a PT of 4-KiB user pages.
@@ -31,15 +31,15 @@
 
 #define USER_WINDOW_LO  0x400000ULL   /* first mapped VA (cloned PD i2=2) */
 #define USER_STACK_VA   0x600000ULL   /* stack top (grows down)           */
-#define USER_STACK_SZ   (16 * 1024)
-#define USER_MAX_PAGES  8             /* code+data span cap (32 KiB)      */
+#define USER_STACK_SZ   (64 * 1024)
+#define USER_MAX_PAGES  480           /* compiler code, data, and arena */
 
-/* Frame ledger cap: 4 page tables + 8 span pages + 4 stack pages. */
-#define MAX_PFRAMES 16
+/* Frame ledger cap: page tables + bounded program span + stack. */
+#define MAX_PFRAMES (4 + USER_MAX_PAGES + USER_STACK_SZ / 4096)
 
 /* Build one user address space from a resident ELF64 image (validated
    by the portable elf64_plan module): boot-table clones, span pages
-   copied/zeroed per the PT_LOAD plan, zeroed 16-KiB stack. Returns
+   copied/zeroed per the PT_LOAD plan, zeroed 64-KiB stack. Returns
    the root PML4 PA (0 = refusal of any kind) and fills frames[] /
    entry_out; the entry point comes from the Ehdr and is checked to
    live inside the mapped span. Source buffer must identity-mapped

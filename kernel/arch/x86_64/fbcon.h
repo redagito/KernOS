@@ -34,6 +34,11 @@ u32  fbcon_rows(void);      /* text rows        = fb_height/ch   */
 u64  fbcon_scrolls(void);   /* hard scrolls since init           */
 u32  fbcon_fg(void);        /* the one static fg color           */
 
+/* M6.5: the glyph height in pixels - the focus hit-test's single
+   piece of geometry (cursor pixel-y -> claim-band row). 0 before
+   init, like the rest of the getters. */
+u32  fbcon_glyph_h(void);
+
 /* M6.2: ink count of the glyph a CODEPOINT maps to under the cell
    map - the read side of the draw, so gates compare painted pixels
    against the font's own answer. 0 before init. */

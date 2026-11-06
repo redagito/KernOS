@@ -59,6 +59,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/font.o \
 	$(OBJ)/cursor.o \
 	$(OBJ)/compo.o \
+	$(OBJ)/focus.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
@@ -278,6 +279,15 @@ $(OBJ)/compo.o: kernel/arch/x86_64/compo.c kernel/arch/x86_64/compo.h \
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 
+# The focus substrate (M6.5 commit 1): who the keyboard serves next -
+# owner tid, claim bands, click re-home - kernel state, not scheduling
+# luck. Picks up the cursor + event shapes for the hit-test.
+$(OBJ)/focus.o: kernel/arch/x86_64/focus.c kernel/arch/x86_64/focus.h \
+		kernel/arch/x86_64/fbcon.h kernel/arch/x86_64/cursor.h \
+		kernel/arch/x86_64/sched.h include/kernel/input.h
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
 $(OBJ)/console.o: kernel/arch/x86_64/console.c kernel/arch/x86_64/console.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
@@ -340,7 +350,8 @@ $(OBJ)/fat32.o: kernel/fat32.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 
-$(OBJ)/syscall.o: kernel/arch/x86_64/syscall.c kernel/arch/x86_64/trap.h
+$(OBJ)/syscall.o: kernel/arch/x86_64/syscall.c kernel/arch/x86_64/trap.h \
+		kernel/arch/x86_64/focus.h
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

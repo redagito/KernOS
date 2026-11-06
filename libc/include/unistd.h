@@ -27,5 +27,15 @@ long    wait(void);             /* child exit code; -1 if no children  */
    nonblocking by contract). */
 long    input(void *buf, long max);
 
+/* M6.5 (focus substrate): the focus era's calls. v0 claims are ROW
+   BANDS of the console face (ABI nr 8, docs/syscall-abi.md). */
+long    surface_claim(long row, long h, long claim);
+                                  /* claim your band + take focus; the
+                                     caller's tid answers (>= 0), or
+                                     -1 = refusal (band off face,
+                                     h < 1, registry full)            */
+long    face_geometry(void);      /* probe: rows<<16 | cols of the
+                                     fb face; 0 = none (VGA-only boot) */
+
 #define STDIN_FILENO   0     /* the keyboard ring (M5.5)             */
 #define STDOUT_FILENO  1     /* the console (COM1 line printer)      */

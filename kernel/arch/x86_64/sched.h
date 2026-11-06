@@ -115,6 +115,13 @@ typedef void (*thread_fn)(void *);
 /* wait queues (waitq field of a T_WAITING thread) */
 #define SCHED_WQ_KBD    0
 #define SCHED_WQ_CHILD  1
+/* M6.5 commit 1: the unfocused reader's park. The read gate blocks
+   here BEFORE popping anything, and EVERY focus transition (claim,
+   re-home, owner exit) wakes the queue - readers re-check the
+   allow-question at their loop head per doctrine rule e; nobody
+   trusts a wake, and a mid-park owner change cannot land a byte in
+   the wrong reader's hands. */
+#define SCHED_WQ_FOCUS  2
 
 void sched_init(void);
 

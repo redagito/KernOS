@@ -33,6 +33,17 @@ ssize_t write(int fd, const void *buf, size_t n)
     return (ssize_t)r;
 }
 
+long surface_claim(long row, long h, long claim)
+{
+    long r = gate(SYSCALL_SURFACE, row, h, claim);
+    return r < 0 ? -1 : r;              /* negated errno -> -1, v0 style */
+}
+
+long face_geometry(void)
+{
+    return gate(SYSCALL_SURFACE, (long)-1, 0, 0);
+}
+
 ssize_t read(int fd, void *buf, size_t n)
 {
     long r = gate(SYSCALL_READ, fd, (long)buf, (long)n);

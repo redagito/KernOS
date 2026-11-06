@@ -51,6 +51,27 @@ int main(void)
 {
     printf("ksh: kernos shell ready\n");
 
+    /* M6.5 (focus substrate): the shell founds the focus era. Probe
+       the face, claim it as ONE band, and the kernel's keyboard
+       routing is born knowing its first owner. The claim line on
+       serial ('focus: claim owner=...') is the gate's cue, not this
+       printf. A refusal still boots - the OS just stays open mode. */
+    {
+        long face = face_geometry();          /* rows<<16 | cols        */
+        long rows = face >> 16;
+        long cols = face & 0xFFFF;
+        if (rows > 0 && cols > 0) {
+            long owner = surface_claim(0, rows, 1);
+            if (owner >= 0)
+                printf("ksh: face claimed rows=%ld cols=%ld\n",
+                       rows, cols);
+            else
+                printf("ksh: surface claim refused\n");
+        } else {
+            printf("ksh: no fb face - focus stays open\n");
+        }
+    }
+
     for (;;) {
         printf("ksh> ");
 

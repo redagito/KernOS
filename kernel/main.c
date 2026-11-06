@@ -30,6 +30,7 @@
 #include "arch/x86_64/fb.h"
 #include "arch/x86_64/fbcon.h"
 #include "arch/x86_64/cursor.h"
+#include "arch/x86_64/focus.h"
 
 /* M5.1: the v0 syscall ABI exercised from the caller side - the same
    four-step shape userland will use (docs/syscall-abi.md). RAX carries
@@ -542,6 +543,12 @@ void kernel_main(void)
                 console_puts("compo: z-order echo FAILED\n");
         }
     }
+
+    /* M6.5 (focus substrate): the registry the input era grows on -
+       owner tid, claim bands, open unit. Lives AFTER the compo gate
+       (the face is proven and the sprite parked) and BEFORE userland
+       (the shell's claim is the first transition it will ever see). */
+    focus_init();
 
     /* M4.1: PCI walk — the storage estate the AHCI driver will own. */
     pci_init();

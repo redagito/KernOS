@@ -230,6 +230,45 @@ as listed below.
   is u64** not u64*, idt.c's stub table is u64[] not void*[], and
   mem.c's 0x600 E820 read needed the fixed-address read discipline
   (register barrier, same family as fb.c's rd_le32).
+- **M6.5 — focus (in flight: substrate locked 2026-11-06, commit 1 of 3)**
+  The GUI's input model arrives before its paint model: "who does the
+  keyboard serve next" becomes KERNEL STATE, not scheduling luck.
+  Three gated commits: (1) the focus substrate — kernel/arch/x86_64/
+  focus.c|h holds ONE owner tid (0 = open mode until the first
+  claim, read gate serves everyone, exactly the pre-focus era as
+  documented default) plus a claim registry of row BANDS of the
+  console face (rectangle semantics wait for commit 3's scoped
+  rendering; the libc gate() 3-arg shape IS the whole ABI surface).
+  Syscall nr 8 `surface(row, h, claim)`: row<0 probe answers
+  rows<<16|cols; claim=1 registers band + takes focus; refusals
+  named (h<1, claim!=1, band off face, registry full -8, kernel-side
+  caller: focus is a user thing, the owner is always a program tid).
+  The read gate asks the focus question at the LOOP HEAD before any
+  byte pops: unfocused readers park on the new SCHED_WQ_FOCUS with
+  the byte FIFO untouched (no EFOCUS — focus may flip back before
+  the reader wakes; blocking is the honest answer), every focus
+  transition wakes the queue, readers re-check and re-block — a
+  mid-park owner change cannot land a byte in the wrong batch.
+  Button PRESSES through nr 7 are a focus command: cursor cell
+  hit-tested against the bands re-homes the owner (named line on
+  transitions only); a click on the backdrop is a no-op by doctrine;
+  mouse motion still routes to nobody (the sprite keeps its single
+  writer). Keys keep TWO honest channels (M6.1 doctrine carried
+  forward): the event ring for the polled GUI view and the
+  focus-routed terminal read. Exit (3) closes the ledger before the
+  sched teardown: `focus: exit owner=N served=K`, K = bytes the read
+  gate delivered to the tid the whole registry life of the tid.
+  Commit 1 evidence: boot cue `focus: substrate ok open`, the
+  boot shell's founding claim `focus: claim owner=3 band=0..48` +
+  `ksh: face claimed rows=48 cols=128`, screen == serial cell-exact
+  (48 rows exact 128/128). RED was captured first on 3dd0391: the
+  required cue did not exist on the tree. Commit 2 makes the
+  routing RED-GREEN for real: `run ksh` spawns a second reader,
+  the child probes and claims its own band, a click re-homes focus,
+  typing into each region feeds exactly that owner, per-owner
+  served= totals are the exit-line evidence. Commit 3 puts the
+  terminal ON the face: band-scoped fbcon rendering (the console
+  stays the truth-owner), prompts and echoes paint inside the claim.
 - **M6.1 — the per-event input channel (locked 2026-11-04)**
   kernel/input.c|h is the event core: ONE ring both input devices
   feed, shaped for userland like fat32/elf64 (the portable center of

@@ -48,6 +48,7 @@ u32 fbcon_fg(void) { return fg; }
 u32 fbcon_cols(void) { return cols; }
 u32 fbcon_rows(void) { return rows; }
 u64 fbcon_scrolls(void) { return scrolls; }
+u32 fbcon_glyph_h(void) { return gh; }        /* M6.5: the hit test    */
 
 int fbcon_init(void)
 {

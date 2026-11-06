@@ -8,6 +8,7 @@
 #include "serial.h"
 #include "console.h"
 #include "cursor.h"
+#include "focus.h"
 
 /*
  * The 0x80 syscall gate (M5.1+, docs/syscall-abi.md).
@@ -152,12 +153,30 @@ void syscall_dispatch(struct trapframe *tf)
             break;
         }
         for (;;) {
+            /* M6.5 (focus substrate): the routing question lives at
+               the LOOP HEAD - asked after EVERY wake (kbd IRQ and
+               focus transition alike), so a reader parked while A
+               owned the keyboard, re-checked when focus re-homed mid-
+               park, still re-asks before its first byte: the stale
+               owner cannot drain a single byte it does not own. An
+               unfocused caller PARKS with nothing popped - the byte
+               FIFO stays intact for the owner (not yet read, not
+               smuggled), parks are counted, and sleeping is all the
+               refusal a v0 reader gets (EFOCUS is not a thing: the
+               focus can flip back before the reader wakes - blocking
+               IS a blocking syscall's honest answer). */
+            if (!focus_allows_read(sched_tid())) {
+                focus_note_park();
+                sched_block(SCHED_WQ_FOCUS);  /* focus transitions wake */
+                continue;
+            }
             char chunk[64];
             int got = kbd_pull(chunk, n > 64 ? 64 : (int)n);
             if (got == 0) {
                 sched_block(SCHED_WQ_KBD);   /* resumes IF off mid-loop */
                 continue;
             }
+            focus_note_served(sched_tid(), got);
             for (int i = 0; i < got; ++i)
                 buf[i] = (u8)chunk[i];
             r = (u64)got;
@@ -277,6 +296,32 @@ void syscall_dispatch(struct trapframe *tf)
            ring stays SPSC (cursor_apply, like input_pull, runs IF
            off on the caller's stack; no second mind ever reads it). */
         cursor_apply(buf, (int)r);
+        /* M6.5: the clicked-through batch is also the focus COMMAND
+           channel - button presses hit-test the claim bands and may
+           re-home the owner (named lines on transitions only; the
+           event ring itself is untouched). */
+        focus_clicks(buf, (long)r);
+        break;
+    }
+
+    case SYSCALL_SURFACE: {
+        /* M6.5 (commit 1): the namespace of who owns the keyboard.
+           arg1 row / arg2 h / arg3 claim, the libc gate()'s 3-arg
+           shape exactly (v0 claims are row bands, not rects). row<0
+           is the probe: geometry, nothing else. A CPL0 kernel caller
+           (tid 0) never claims - the veto below keeps the owner a
+           USER tid (pid==tid, one namespace) by construction, so the
+           'exit owner=N served=K' line always names a program. */
+        long row = (long)tf->rdi;
+        long h   = (long)tf->rsi;
+        long cl  = (long)tf->rdx;
+        int  tid = (int)sched_tid();
+
+        if ((tf->cs & 3) != 3 || tid <= 0) {
+            r = (u64)SYS_EINVAL;          /* focus is a user thing      */
+            break;
+        }
+        r = (u64)focus_surface_call(row, h, cl, tid);
         break;
     }
 
@@ -309,6 +354,12 @@ void syscall_dispatch(struct trapframe *tf)
         console_puts_hex(tf->rdi);
         console_puts("\n");
         user_exits++;
+        /* M6.5: the focus ledger closes BEFORE the sched teardown -
+           the hook drops this tid's claim + ownership, prints the
+           served= line if it ever held either, and wakes the parked
+           readers into (likely open) mode. sched_exit_now never
+           returns, so this is the only window. */
+        focus_thread_exit((int)sched_tid());
         sched_exit_now(tf->rdi);           /* never returns            */
         /* not reached */
 

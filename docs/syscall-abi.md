@@ -54,6 +54,7 @@ v0 rules beyond the table:
 | 5 | `spawn` | name(8.1; ".ELF" assumed if absent) | new pid, -1 refused, M5.11: -2 bad name |
 | 6 | `wait`  | —                           | a child's exit code, or -1    |
 | 7 | `input` | buf, max (≤ 64 events/call) | events drained now, or -1     |
+| 8 | `surface`| row, h, claim (1)          | claim: caller's tid; probe (row<0): rows<<16\|cols; -1 refused |
 
 v0 specifics worth stating:
 
@@ -171,3 +172,53 @@ M6.1 notes — the per-event input channel:
   exit 0 of u1 means BOTH paths here, so without the cues the
   round-trip proof alone cannot tell the phases apart — cues the
   gate does not require are decoration.
+
+M6.5 notes — the focus substrate (commit 1), keyboard routing stops
+being scheduling luck:
+
+- `surface` (8): the registry that makes "who does the keyboard serve
+  next" kernel state. `row < 0` = PROBE: answers the face geometry
+  `(rows<<16)|cols` of the fb console and claims nothing (the
+  caller's way to size a band; 0 = no fb face, VGA-only boot).
+  `row >= 0` = CLAIM: registers band `[row, row+h)` for the CALLER's
+  tid and takes keyboard focus; arg3 must be 1 — v0 registers only
+  focus claims, there is no "band without intent". One claim per tid
+  (a re-claim replaces its own band); first matching band in scan
+  order wins a hit-test (overlap resolution is named, not lucky).
+  Refusals (-1): h < 1, claim != 1, band not fully on the face,
+  registry full (8 live claims), or a CPL0/kernel-side caller —
+  focus is a USER thing by construction, so the owner is always a
+  program tid.
+- OWNER == 0 is OPEN MODE: until the first claim (and after an
+  owner's exit) the read gate serves EVERY reader — the pre-focus
+  era's behavior is the documented default, not a case to special-
+  case away. Owned mode serves exactly one tid.
+- `read` (4) routing: the focus question is asked at the READ LOOP
+  HEAD on every turn — before any byte pops. An unfocused caller
+  PARKS on `SCHED_WQ_FOCUS` with the byte FIFO untouched (blocking is
+  a blocking read's honest answer; there is no EFOCUS, because focus
+  may legitimately flip back before the reader wakes). Every focus
+  transition (claim, re-home, owner exit) wakes the queue; readers
+  re-check and re-block — nothing trusts a wake, and a mid-park
+  owner change cannot land a byte in the wrong reader's batch.
+- Button presses through `input` (7) are a focus COMMAND: the gate
+  hit-tests the cursor cell against the claim bands and re-homes the
+  owner (named line on transitions only). A click outside every
+  band is a no-op — the backdrop is not a program, and focus never
+  falls to zero on a miss. Mouse MOTION never routes to programs;
+  the sprite stays single-writer (M6.3 discipline intact).
+- Keys keep TWO honest channels (M6.1 doctrine, carried forward):
+  the event ring for the polled GUI view (u1's gate counters move
+  zero) and the focus-routed terminal read. The window-manager era
+  collapses them; v0 counts both.
+- Exit (3) gained the ledger close: the hook runs BEFORE the sched
+  teardown (`sched_exit_now` never returns), drops the tid's claim
+  and ownership, wakes parked readers into (likely) open mode, and
+  prints `focus: exit owner=N served=K` — K = bytes the read gate
+  delivered to that tid the whole registry life of the tid. Silent
+  for a tid that never held either (the boot workers exit unclaimed).
+- Evidence (commit 1): boot cue `focus: substrate ok open`, the
+  shell's founding claim `focus: claim owner=3 band=0..48` +
+  `ksh: face claimed rows=48 cols=128`, screen == serial cell-exact
+  (48 rows exact 128/128). Commit 2 makes it RED: two live readers
+  and a click re-home, per-owner key accounting on the exit line.

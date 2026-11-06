@@ -27,6 +27,21 @@
    append-only rule - sync stays the v0 model). */
 #define SYSCALL_INPUT   7    /* input(buf, max) -> drained events (0 = none) */
 
+/* M6.5 (focus substrate, commit 1): the surface registry - v0 claims
+   are ROW BANDS on the console face (the libc gate() 3-arg shape is
+   the whole ABI surface). SURFACE(row, h, claim):
+     row <  0              probe - answer face geometry (rows<<16|cols),
+                           claim/claim-transfer nothing side-effectfree
+     row >= 0, h >= 1      claim band [row, row+h) for the CALLER's tid
+                           and take keyboard focus (claim MUST be 1 -
+                           v0 registers only focus claims); a tid
+                           re-claiming replaces its own band (one
+                           claim per tid)
+     h <= 0, claim != 1,   SYS_EINVAL, no half-claims - the registry
+     or band not fully           only ever holds bands the face owns
+     inside the face                                                     */
+#define SYSCALL_SURFACE 8    /* surface(row,h,claim) -> tid/geometry   */
+
 #define STDIN_FILENO  0      /* the keyboard ring (M5.5)         */
 #define STDOUT_FILENO 1      /* v0: COM1 console                */
 

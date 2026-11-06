@@ -222,3 +222,76 @@ being scheduling luck:
   `ksh: face claimed rows=48 cols=128`, screen == serial cell-exact
   (48 rows exact 128/128). Commit 2 makes it RED: two live readers
   and a click re-home, per-owner key accounting on the exit line.
+
+M6.5 notes — commit 2, the two-owner routing gate. The same substrate
+now carries a TYPED two-owner session whose every phase kernel line is
+required by the driving deck; the gate counts `focus: rehome owner=`
+(2), `focus: claim owner=` (4), `focus: exit owner=` (2) so a silent
+rehome cannot pass. The testbed shell (ksh) claims the BOTTOM half of
+the face at boot (a re-claim by `run` takes the TOP half first, so the
+child's own boot claim finds the bottom vacant — claim replacement
+does the rest with identical code on both instances), and the read
+gate gained the three wake/drain completes that make clicks actually
+ROUTE while owners are parked:
+
+- Parked-unfocused readers DRAIN the ring pre-park: a click reaches
+  the kernel only through nr 7 pulls, and a focus-blocked read at a
+  dead loop never pulls — two parked blocks and the re-home
+  deadlocks. The unfocused park path drains ONE event batch
+  (`cursor_apply` + `focus_clicks`, IF off, inside the gate the same
+  as any pull) before parking; the SPSC ring keeps its single
+  consumer because it is still the gate holding it. Ring KEY copies
+  drained here are inert copies — kbd.c's own ring serves the FIFO,
+  and a full input ring is already counted (`dropped`).
+- Read-blocked OWNERS drain the ring on an empty kbd pull: same
+  reasoning, owner-side. Without it, a queued click sits until the
+  owner's next loop turn while the unfocused sibling waits for
+  `WQ_FOCUS` — with it, the owner's very next read turn processes
+  whatever arrived while it slept. An owner that parks on the EMPTY
+  kbd FIFO ALSO drains one batch first (this is the second
+  deadlock, killed before its circumstances can recur: the mouse IRQ
+  wakes `WQ_FOCUS` on every packet (flip-only, like kbd.c's wake;
+  churny under pointer floods by design — that is exactly when the
+  ring wants draining), so a click landing while the owner sleeps is
+  served no later than the owner's next loop turn, and a click that
+  lands while the owner is between turns wakes it directly).
+- A re-home to T is a keystroke for T: the focus command's owner
+  change wakes BOTH `WQ_FOCUS` (parked-unfocused readers re-check)
+  AND `WQ_KBD` (the new owner may be parked on the kbd queue with
+  bytes ALREADY queued — typed while a previous owner held focus in
+  a wait() — and only a rehome wake can deliver them NOW; without it
+  the new owner opens the FIFO only on the next physical keystroke,
+  a delayed-wake disguised as working).
+- Bytes follow the click — v0 routing semantics named: a byte typed
+  while an unfocused-owner's window is open waits in the FIFO; the
+  first owner-allowed satisfied read after the re-home pops it. The
+  driving session spells the ledger: parent (tid 3) types
+  `echo topline`/`run shell`/`\n`/`exit` = served=29; the child
+  (tid 4) types `echo child`/`\n`/its re-homed `echo parent`/`exit`
+  = served=29; 58 typed bytes = 29+29 served, none lost, none
+  doubled, and each shell's own bytes typed while it was owner stay
+  for it. The served= totals at exit are where the routing becomes
+  checkable arithmetic.
+- Testbed footnote: the ksh loop-head drains one event batch per
+  turn (`ksh: drained=N` telemetry — honest testbed instrumentation;
+  the failed first green run's suite relied on it to calibrate).
+- Host-side tooling note (commit 2): QEMU NEGATES injected QMP
+  rel-y on its way to the PS/2 wire (`s->mouse_dy -= evt->rel.value`
+  in hw/input/ps2.c), so `qmp-mouse.py` passes y through negated and
+  callers speak screen truth (dy>0 = down); deltas >127 ride in
+  <=127-sized packets losslessly, so one calibrated move (dy 450)
+  plus a press = 14 ring events, swallowed whole by the 16-event
+  loop-head drain. park spot (16,736) = row 46; cursor row = cy/16.
+- Evidence (commit 2): red tree `b8a58c1` archives three named cue
+  absences (band-split claim absent, click shadows, no puller) at
+  `build/serial_red652.log` + `build/shot_red652.png`; green archives
+  `build/serial_green652.log` + `build/shot_green652.png` +
+  `build/readback_green652.txt` (48 rows exact 128/128): boot +
+  split claims, P5 rehome owner=3 on the empty-line drain
+  (`ksh: drained=15` = the 14-event click + the newline's ring
+  copy), P7 rehome owner=4 followed by the child serving the bytes
+  queued for `echo parent` (`parent` printed by the re-homed owner),
+  both exits at served=29, negative control quiet (click on the
+  vacant top band at P9, no rehome line), counters exact
+  (`input: events=100 dropped=0` = 58 keys + 42 mouse packets;
+  `kbd: events=58`).

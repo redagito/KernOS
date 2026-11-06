@@ -2,6 +2,7 @@
 #include <kernel/input.h>
 #include "mouse.h"
 #include "irq.h"
+#include "sched.h"
 
 /*
  * mouse.c — PS/2 aux channel of the i8042 (M5.8).
@@ -87,6 +88,24 @@ static void mouse_handler(struct trapframe *tf)
             input_push_rel(dx, dy);
             if (now_buttons != prev)
                 input_push_buttons(prev, now_buttons);
+            /* M6.5 (commit 2): every push is a possible re-home
+               trigger, and parked readers are woken to pull the ring.
+               Without this wake the ring's only pullers would be the
+               shells' own loop turns - and a read()-blocked owner
+               (kbd IRQ only wakes WQ_KBD) plus an unfocused parker
+               (WQ_FOCUS only) left clicks queued forever: the second
+               focus deadlock, ended at the source. Wake DOCTRINE is
+               kbd.c's: a flip, not a dispatch - the woken thread
+               re-drains the ring and re-parks by its own loop-head
+               re-check (ordered ring drain makes the post-apply
+               hit-test see the button at the RIGHT cursor row).
+               Unconditional per packet: pointer floods make this the
+               churny hot path (30 moves = 30 wakes), and pointer
+               floods are exactly when the ring wants draining; an
+               empty wait queue makes the flip near-free. Which
+               INPUT carries the button state is invisible here -
+               the wakes ride the packet, not the transition. */
+            sched_wake_all(SCHED_WQ_FOCUS);
         }
     }
 }

@@ -5,8 +5,18 @@ usage: qmp-mouse.py <port> <moves> <dx> <dy> <delay_ms>
 
 QEMU must run with -qmp tcp:127.0.0.1:<port>,server,nowait. Each move
 is one input-send-event with a relative x and a relative y input event,
-sep dl_, sent every delay_ms; replies are printed and any "error"
-reply is a nonzero exit.
+sent every delay_ms; replies are printed and any "error" reply is a
+nonzero exit.
+
+SIGN CONVENTION (calibrated against QEMU 7.2's hw/input/ps2.c): QEMU
+NEGATES injected rel-y while accumulating the PS/2 wire delta
+(s->mouse_dy -= evt->rel.value), so a NEGATIVE QMP rel.y produces a
+POSITIVE wire delta = the pointer moves DOWN the screen. The kernel's
+decoder is textbook PS/2 (sign bit set = negative = up) - the
+inversion lives entirely in QEMU's QMP-to-PS/2 relay. This tool
+passes y through NEGATED so callers speak the honest screen
+convention: dy > 0 = move DOWN; dy < 0 = move UP.
+(X is NOT negated by QEMU and passes through as-is.)
 """
 import json
 import socket
@@ -35,7 +45,7 @@ def main() -> int:
     for i in range(moves):
         cmd = {"execute": "input-send-event", "arguments": {"events": [
             {"type": "rel", "data": {"axis": "x", "value": dx}},
-            {"type": "rel", "data": {"axis": "y", "value": dy}},
+            {"type": "rel", "data": {"axis": "y", "value": -dy}},
         ]}}
         s.sendall(json.dumps(cmd).encode() + b"\n")
         reply = json.loads(f.readline())

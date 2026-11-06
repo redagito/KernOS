@@ -153,9 +153,9 @@ void syscall_dispatch(struct trapframe *tf)
             break;
         }
         for (;;) {
-            /* M6.5 (focus substrate): the routing question lives at
-               the LOOP HEAD - asked after EVERY wake (kbd IRQ and
-               focus transition alike), so a reader parked while A
+            /* M6.5 (focus substrate, commit 1): the routing question
+               lives at the LOOP HEAD - asked after EVERY wake (kbd IRQ
+               and focus transition alike), so a reader parked while A
                owned the keyboard, re-checked when focus re-homed mid-
                park, still re-asks before its first byte: the stale
                owner cannot drain a single byte it does not own. An
@@ -165,22 +165,80 @@ void syscall_dispatch(struct trapframe *tf)
                refusal a v0 reader gets (EFOCUS is not a thing: the
                focus can flip back before the reader wakes - blocking
                IS a blocking syscall's honest answer). */
-            if (!focus_allows_read(sched_tid())) {
-                focus_note_park();
-                sched_block(SCHED_WQ_FOCUS);  /* focus transitions wake */
-                continue;
+            if (focus_allows_read(sched_tid())) {
+                char chunk[64];
+                int got = kbd_pull(chunk, n > 64 ? 64 : (int)n);
+                if (got == 0) {
+                    /* M6.5 (commit 2): the SECOND deadlock this gate
+                       built and killed. An owner blocked in read on an
+                       empty FIFO parks on WQ_KBD and - until now -
+                       never touched the event ring, so a queued click
+                       sat unprocessed while BOTH shells were parked
+                       (the unfocused one on WQ_FOCUS): the re-home
+                       starves inside its own syscall. Escape: ONE
+                       event batch before every kbd park - the same
+                       IF-off, gate-held, SPSC-serialized discipline as
+                       the unfocused drain below; the owner pulling the
+                       pointer is just what the cursor's single-writer
+                       rule already makes of the gate. Wake arithmetic
+                       unchanged: the kbd IRQ re-arms THIS WQ on the
+                       next key, and the mouse IRQ's WQ_FOCUS wake
+                       covers the parked-unfocused side - so a click
+                       that lands while the owner is parked is served
+                       on the owner's next loop turn (deferred by one
+                       turn, never deadlocked). Ring KEYS drained here
+                       are copies - input_push_key mirrors kbd.c's own
+                       serving ring, and the byte FIFO is the honest
+                       route; the drop, when full, is already counted.
+                       (This is why the M6.1 observatory session stays
+                       exact: a parked reader never held its keys.) */
+                    struct input_event wev[8];
+                    int wn = input_pull(wev, 8);
+                    if (wn > 0) {
+                        cursor_apply(wev, wn);
+                        focus_clicks(wev, wn);
+                        continue;         /* re-check at the loop head:
+                                             a click may have re-homed */
+                    }
+                    sched_block(SCHED_WQ_KBD);   /* resumes IF off mid-loop */
+                    continue;
+                }
+                focus_note_served(sched_tid(), got);
+                for (int i = 0; i < got; ++i)
+                    buf[i] = (u8)chunk[i];
+                r = (u64)got;
+                break;                    /* one batch per read; loop in userland */
             }
-            char chunk[64];
-            int got = kbd_pull(chunk, n > 64 ? 64 : (int)n);
-            if (got == 0) {
-                sched_block(SCHED_WQ_KBD);   /* resumes IF off mid-loop */
-                continue;
+            /* M6.5 (commit 2): an unfocused parked reader is not dead
+               weight - it IS the pointer's consumer of last resort,
+               because clicks only reach the kernel through nr 7 pulls,
+               and two shells blocked in read() would otherwise deadlock
+               the re-home itself (found by building this very gate):
+               focus can change only through a click, the click only
+               through a pull, the pull only through a running loop.
+               So before each park, drain ONE event batch: cursor motion
+               applies (the sprite's single writer stays the gate, IF
+               off), button presses hit-test, and a re-home either makes
+               THIS reader focused (loop re-check serves the FIFO bytes
+               that now belong to it) or leaves it parked. Serialisation
+               is unchanged: every pull runs IF-off inside the 0x80
+               gate, single core - the SPSC discipline the ring was
+               born with covers plural readers the same way it covered
+               u1 and shells before. Keys in the EVENT ring drained by a
+               parked reader are noise to it (their honest route is the
+               byte FIFO); named here so the M6.1 observatory gate's
+               own session never runs concurrent with an unfocused
+               parker holding its keys. */
+            struct input_event pev[8];
+            int pn = input_pull(pev, 8);
+            if (pn > 0) {
+                cursor_apply(pev, pn);
+                focus_clicks(pev, pn);
+                continue;                 /* re-check: focus may have
+                                             flipped to THIS reader */
             }
-            focus_note_served(sched_tid(), got);
-            for (int i = 0; i < got; ++i)
-                buf[i] = (u8)chunk[i];
-            r = (u64)got;
-            break;                        /* one batch per read; loop in userland */
+            focus_note_park();
+            sched_block(SCHED_WQ_FOCUS);  /* focus transitions wake */
         }
         break;
     }

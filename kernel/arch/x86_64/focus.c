@@ -155,6 +155,14 @@ void focus_clicks(const struct input_event *ev, long n)
             owner = claims[i].tid;
             sched_wake_all(SCHED_WQ_FOCUS);   /* parked readers on
                                                  BOTH sides re-check */
+            sched_wake_all(SCHED_WQ_KBD);     /* M6.5 (commit 2): the
+               new owner may be parked on the kbd queue with bytes
+               ALREADY in its FIFO (queued while an earlier owner
+               serially held the gate): a re-home to T is exactly a
+               byte's arrival for T's reader, so the kbd waiters get
+               the same flip. Without it the new owner sleeps until
+               the NEXT physical keystroke - a delayed wake disguised
+               as working, missed in the failed green run's P8 timing. */
             console_puts("focus: rehome owner=");
             putdec((u64)owner);
             console_puts(" band=");

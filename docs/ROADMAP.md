@@ -230,7 +230,7 @@ as listed below.
   is u64** not u64*, idt.c's stub table is u64[] not void*[], and
   mem.c's 0x600 E820 read needed the fixed-address read discipline
   (register barrier, same family as fb.c's rd_le32).
-- **M6.5 — focus (in flight: substrate locked 2026-11-06, commit 1 of 3)**
+- **M6.5 — focus (in flight: substrate + routing locked 2026-11-06, commits 1-2 of 3)**
   The GUI's input model arrives before its paint model: "who does the
   keyboard serve next" becomes KERNEL STATE, not scheduling luck.
   Three gated commits: (1) the focus substrate — kernel/arch/x86_64/
@@ -262,13 +262,44 @@ as listed below.
   boot shell's founding claim `focus: claim owner=3 band=0..48` +
   `ksh: face claimed rows=48 cols=128`, screen == serial cell-exact
   (48 rows exact 128/128). RED was captured first on 3dd0391: the
-  required cue did not exist on the tree. Commit 2 makes the
-  routing RED-GREEN for real: `run ksh` spawns a second reader,
-  the child probes and claims its own band, a click re-homes focus,
-  typing into each region feeds exactly that owner, per-owner
-  served= totals are the exit-line evidence. Commit 3 puts the
-  terminal ON the face: band-scoped fbcon rendering (the console
-  stays the truth-owner), prompts and echoes paint inside the claim.
+  required cue did not exist on the tree. Commit 2 (locked
+  2026-11-06) crossed the red/green gate for real: the testbed shell
+  claims the bottom half at boot (top-half re-claim before `run`,
+  bottom again after the child exits — claim replacement with
+  identical code on both instances), `run shell` plants the second
+  reader (child tid 4, calibrated), and a calibrated double-click
+  session drives the routing — RED on b8a58c1 archived
+  (`build/serial_red652.log`, `build/shot_red652.png`: band-split
+  claim absent, clicks shadowed, no puller); GREEN
+  (`build/serial_green652.log`, `build/shot_green652.png`,
+  `build/readback_green652.txt`, 48 rows exact 128/128): a prescribed
+  typed session with every phase's kernel line required by the deck,
+  count cues (2 rehomes, 4 claims, 2 exits) so a silent rehome cannot
+  pass — THREE wake-drain completes landed kernel-side on the way
+  (each found by an honest FAILED green run, not by theory): (1)
+  parked-unfocused readers drain the ring pre-park (a click reaches
+  the kernel only via nr 7 pulls; two parked blocks would deadlock
+  the rehome); (2) kbd-empty owners drain one batch before
+  `sched_block`, and the mouse IRQ wakes `WQ_FOCUS` per packet
+  (flip-only, kbd.c's doctrine) so parked owners get clicks served by
+  their next loop turn at the latest; (3) a re-home to T is a
+  keystroke for T — wakes BOTH `WQ_FOCUS` and `WQ_KBD`, else a new
+  owner parked on an empty FIFO waits for the NEXT physical key. The
+  evidence trace: P5 rehome owner=3 on the empty line's 16-event
+  drain (a whole 14-event calibrated click rides one pull), P7
+  rehome owner=4 followed by the child serving the bytes typed while
+  the parent held focus in wait() (`parent` printed by the re-homed
+  owner — bytes wait for the next owner, then follow the click),
+  both exits at served=29 (58 typed bytes = 29+29, none lost, none
+  doubled), counters exact (`input: events=100 dropped=0` = 58 keys
+  + 42 mouse; `kbd: events=58`), negative control quiet on the SAME
+  click geometry (vacant top band = empty, no rehome line). Tooling
+  note worth keeping: QEMU negates injected QMP rel-y on its way to
+  the PS/2 wire, so `qmp-mouse.py` speaks screen truth (`dy>0` =
+  down) by passing y through negated, and deltas >127 ride in
+  <=127-sized packets losslessly. Commit 3 puts the terminal ON the
+  face: band-scoped fbcon rendering (the console stays the
+  truth-owner), prompts and echoes paint inside the claim.
 - **M6.1 — the per-event input channel (locked 2026-11-04)**
   kernel/input.c|h is the event core: ONE ring both input devices
   feed, shaped for userland like fat32/elf64 (the portable center of

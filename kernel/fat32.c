@@ -130,6 +130,35 @@ static int valid_clus(u32 clus)
     return clus >= 2 && clus < st.total_clusters + 2;
 }
 
+int fat_list_root(struct fat_entry *out, int cap)
+{
+    if (!fs || !out || cap < 1) return -1;
+    int n = 0;
+    u32 cl = st.root_clus, hops = st.total_clusters;
+    while (hops-- && valid_clus(cl)) {
+        for (u32 s = 0; s < st.spc; ++s) {
+            if (blk_read(fs, clus_lba(cl) + s, secbuf, 1)) return -1;
+            for (int e = 0; e < 512; e += 32) {
+                const u8 *p = secbuf + e;
+                if (!p[0]) return n;
+                if (p[0] == 0xe5 || (p[11] & 0x18) || p[11] == 0x0f) continue;
+                int k = 0;
+                for (int i = 0; i < 8 && p[i] != ' '; ++i) out[n].name[k++] = p[i];
+                if (p[8] != ' ') {
+                    out[n].name[k++] = '.';
+                    for (int i = 8; i < 11 && p[i] != ' '; ++i) out[n].name[k++] = p[i];
+                }
+                out[n].name[k] = 0; out[n].size = rd32(p, 28);
+                if (++n == cap) return n;
+            }
+        }
+        int rc = fat_next(cl, &cl);
+        if (rc == 1) return n;
+        if (rc < 0) return -1;
+    }
+    return -1;
+}
+
 /* Update one entry in every FAT while preserving each copy's reserved high
    nibble. The cache is invalidated after every attempted update. */
 static int fat_set(u32 clus, u32 value)

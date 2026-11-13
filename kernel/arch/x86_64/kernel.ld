@@ -38,4 +38,6 @@ SECTIONS
 
     ASSERT(__data_end <= 0x100000 + 512 * 512,
            "kernel image exceeds its fixed 256 KiB boot slot (text+rodata+data)")
+    ASSERT(__bss_end <= 0x400000,
+           "kernel data overlaps the process user window at 4 MiB")
 }

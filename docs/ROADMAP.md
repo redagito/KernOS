@@ -11,6 +11,11 @@ principles amended 2026-11-01, same day, after dogma friction.)
 
 ## Locked decisions
 
+Graphical desktop follow-up (2026-11-13): the chosen Clean design now has
+movable overlapping windows, desktop icons, a dock, a userland Notepad
+editor and independent Console. See [DESKTOP.md](DESKTOP.md) for the new
+window/event ownership, native Windows build, palette and remaining limits.
+
 Current delivered workflow (2026-11-06): userland editor + independent
 console, persistent source files, in-OS TinyCC-based KCC compilation and
 execution now pass automated two-boot QEMU acceptance. The chronological

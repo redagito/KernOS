@@ -145,7 +145,7 @@ int main(int argc, char **argv)
         }
 
         /* the lowercase lower-8.3 route the shell's spawn calls take */
-        check(fat_read_file(BENCH_U1_FILE + 0, pbuf, sizeof pbuf) == usz &&
+        check(fat_read_file(BENCH_U1_FILE, pbuf, sizeof pbuf) == usz &&
               fat_read_file("u1.elf", pbuf, sizeof pbuf) == usz,
               "program lookup is case-insensitive too");
     }
@@ -267,6 +267,13 @@ int main(int argc, char **argv)
         }
         check(fat_mount(b) == 0 && fat_read_file("ROOT23.TXT", saved, sizeof saved) == 17 &&
               !memcmp(saved, data, 17), "root directory grows and survives remount");
+        struct fat_entry listed[128];
+        int count = fat_list_root(listed, 128), found = 0;
+        for (int i = 0; i < count; ++i)
+            if (!strcmp(listed[i].name, "ROOT23.TXT") && listed[i].size == 17) found = 1;
+        check(count > 24 && found, "file browser enumeration crosses root clusters with exact size");
+        check(fat_list_root(listed, 1) == 1 && fat_list_root(0, 1) == -1 &&
+              fat_list_root(listed, 0) == -1, "directory enumeration respects output capacity");
         check(fat_save_file("KEEP.C", "original", 8) == 8, "prepare source for failed-save test");
         struct fail_ctx fc = {b, fi.data_start, 1};
         static const struct block_ops fail_ops = {fail_read, fail_write, fail_sectors};
@@ -279,7 +286,9 @@ int main(int argc, char **argv)
 
     /* ---------- absent mount / bad image ---------- */
     {
-        struct block_dev *bad = blk_host_open("/dev/null");
+        FILE *empty = fopen("build/testempty.img.tmp", "wb");
+        if (empty) fclose(empty);
+        struct block_dev *bad = blk_host_open("build/testempty.img.tmp");
         check(bad != 0, "empty device opens");
         if (bad) {
             int mrc = fat_mount(bad);

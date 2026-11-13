@@ -38,6 +38,7 @@ u32  fbcon_fg(void);        /* the one static fg color           */
    piece of geometry (cursor pixel-y -> claim-band row). 0 before
    init, like the rest of the getters. */
 u32  fbcon_glyph_h(void);
+u8 fbcon_glyph_bits(u32 cp, u32 row);
 
 /* M6.2: ink count of the glyph a CODEPOINT maps to under the cell
    map - the read side of the draw, so gates compare painted pixels

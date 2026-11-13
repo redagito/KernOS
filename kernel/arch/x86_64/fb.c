@@ -89,6 +89,18 @@ static volatile u32 *fb_px(u32 x, u32 y)
     return (volatile u32 *)(mapped_va + (u64)y * mode.pitch + (u64)x * 4);
 }
 
+void fb_rect_blit(u32 x, u32 y, u32 w, u32 h, const u32 *src, u32 stride)
+{
+    if (!mapped_va || !src || !w || !h || stride < w || x >= mode.width || y >= mode.height)
+        return;
+    if (w > mode.width - x) w = mode.width - x;
+    if (h > mode.height - y) h = mode.height - y;
+    for (u32 r = 0; r < h; ++r) {
+        volatile u32 *dst = (volatile u32 *)(mapped_va + (u64)(y+r) * mode.pitch + (u64)x*4);
+        for (u32 c = 0; c < w; ++c) dst[c] = src[(u64)r*stride+c];
+    }
+}
+
 void fb_pixel_set(u32 x, u32 y, u32 rgb)
 {
     volatile u32 *p = fb_px(x, y);

@@ -50,6 +50,12 @@ u32 fbcon_cols(void) { return cols; }
 u32 fbcon_rows(void) { return rows; }
 u64 fbcon_scrolls(void) { return scrolls; }
 u32 fbcon_glyph_h(void) { return gh; }        /* M6.5: the hit test    */
+u8 fbcon_glyph_bits(u32 cp, u32 r)
+{
+    if (!nglyphs || r >= gh) return 0;
+    if (cp >= nglyphs) cp = 255;
+    return glyphs[cp * charsize + r];
+}
 
 int fbcon_init(void)
 {

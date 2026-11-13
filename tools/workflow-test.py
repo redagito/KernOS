@@ -17,7 +17,7 @@ BUILD = ROOT / "build"
 
 
 class VM:
-    def __init__(self, disk, name):
+    def __init__(self, disk, name, keep_editor=False):
         self.last_text = ""
         self.log = BUILD / (name + ".log")
         self.sockpath = BUILD / (name + ".qmp")
@@ -42,12 +42,14 @@ class VM:
         self.stream = self.sock.makefile("rb")
         self.stream.readline()
         self.command("qmp_capabilities")
+        self.mx, self.my = 1000, 740  # verified 1024x768 boot cursor position
         try:
             self.wait("KernOS console |")
             self.wait("ksh> ")
             self.wait("edit: opened HELLO.C bytes=")
-            self.key("ctrl-q")
-            self.wait("edit: closed")
+            if not keep_editor:
+                self.key("ctrl-q")
+                self.wait("edit: closed")
         except Exception:
             self.close()
             raise
@@ -108,19 +110,30 @@ class VM:
                 key = plain.get(ch, ch)
             self.key(key)
 
-    def click(self, dy=0):
-        # QMP uses screen coordinates, positive Y down. Split at signed-byte
-        # packet limits, preserving every delta and the order of the click.
-        while dy:
-            step = max(-127, min(127, dy))
+    def move_to(self, x, y):
+        while (self.mx, self.my) != (x, y):
+            dx = max(-100, min(100, x - self.mx))
+            dy = max(-100, min(100, y - self.my))
             self.command("input-send-event", {"events": [
-                {"type": "rel", "data": {"axis": "y", "value": step}}]})
-            dy -= step
+                {"type": "rel", "data": {"axis": "x", "value": dx}},
+                {"type": "rel", "data": {"axis": "y", "value": dy}}]})
+            self.mx += dx
+            self.my += dy
             time.sleep(.03)
+
+    def button(self, down):
+        self.command("input-send-event", {"events": [
+            {"type": "btn", "data": {"button": "left", "down": down}}]})
+        time.sleep(.08)
+
+    def click_at(self, x, y):
+        self.move_to(x, y)
         for down in (True, False):
-            self.command("input-send-event", {"events": [
-                {"type": "btn", "data": {"button": "left", "down": down}}]})
-            time.sleep(.05)
+            self.button(down)
+
+    def click(self, dy=0):
+        # Dock buttons restore and focus without disturbing the text caret.
+        self.click_at(470 if dy < 0 else 570, 725)
 
     def close(self):
         if self.proc.poll() is None:
@@ -187,7 +200,7 @@ def main():
             # and runs its saved source. Pointer starts in the lower pane.
             start = len(vm.text())
             vm.click()
-            vm.wait("focus: rehome owner=3", after=start)
+            vm.wait("desktop: focus Console", after=start)
             start = len(vm.text())
             vm.type("cc TEST.C TEST.ELF\n")
             vm.wait("ksh: compiler exit=0", after=start)
@@ -197,7 +210,7 @@ def main():
             vm.wait("exited code=7", after=start)
             start = len(vm.text())
             vm.click(-635)
-            vm.wait("focus: rehome owner=4", after=start)
+            vm.wait("desktop: focus Notepad", after=start)
             start = len(vm.text())
             vm.type("@\n")
             vm.key("ctrl-s")
@@ -214,7 +227,7 @@ def main():
             vm.wait("exited code=7", after=start)
             start = len(vm.text())
             vm.click(-635)
-            vm.wait("focus: rehome owner=4", after=start)
+            vm.wait("desktop: focus Notepad", after=start)
             vm.key("backspace")
             vm.key("backspace")
             vm.key("ctrl-s")

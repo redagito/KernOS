@@ -45,3 +45,6 @@ u32  fb_pixel_get(u32 x, u32 y);
    a silent no-op, like every other out-of-bounds here. */
 u64  fb_rect_fill(u32 x, u32 y, u32 w, u32 h, u32 rgb);
 void fb_region_copy(u32 sx, u32 sy, u32 w, u32 h, u32 dx, u32 dy);
+/* Copy an RGB software surface into the framebuffer, clipped at its edges.
+   stride is source pixels per row; source must own stride * h pixels. */
+void fb_rect_blit(u32 x, u32 y, u32 w, u32 h, const u32 *src, u32 stride);

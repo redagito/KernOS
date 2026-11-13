@@ -16,8 +16,8 @@ typedef signed short i16;
 typedef unsigned short u16;
 typedef signed int i32;
 typedef unsigned int u32;
-typedef signed long i64;
-typedef unsigned long u64;
+typedef __INT64_TYPE__ i64;
+typedef __UINT64_TYPE__ u64;
 
-typedef unsigned long size_t;   /* LP64: unsigned long is 64 bits */
-typedef unsigned long uptr;     /* pointer-sized unsigned */
+typedef __SIZE_TYPE__ size_t;
+typedef __UINTPTR_TYPE__ uptr;   /* also correct in Windows host tests */

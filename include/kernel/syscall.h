@@ -48,6 +48,7 @@
 #define SYSCALL_TERM 13      /* operation, col, row: clear/move/query */
 #define SYSCALL_WAITPID 14   /* wait for a specified child */
 #define SYSCALL_PAINT 15     /* buffer, length: surface text without serial echo */
+#define SYSCALL_DESKTOP 16   /* operation, fixed-size payload pointer, argument */
 
 #define STDIN_FILENO  0      /* the keyboard ring (M5.5)         */
 #define STDOUT_FILENO 1      /* v0: COM1 console                */

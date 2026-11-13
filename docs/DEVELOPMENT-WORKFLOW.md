@@ -2,6 +2,10 @@
 
 ## Goal
 
+The original fixed-band interface described below has been superseded by
+the [Clean graphical desktop](DESKTOP.md) (2026-11-13). The C development,
+persistent storage and compiler workflow remains the same.
+
 Boot KernOS into a simple text editor and an independent console. Write C
 source, save it to the FAT32 disk, compile it inside KernOS, run the resulting
 ELF program, see output and compiler diagnostics, and edit and repeat. Saved

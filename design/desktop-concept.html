@@ -1,0 +1,421 @@
+<div id="kernos-desktop-concept">
+  <div class="viz-carousel" aria-label="KernOS desktop designs">
+    <section data-variant="Classic" aria-label="Classic KernOS desktop">
+      <div class="kd-desktop kd-classic" aria-label="Desktop with Notepad and Console">
+        <nav class="kd-icons" aria-label="Desktop shortcuts">
+          <button class="kd-shortcut cursor-interaction" data-open="editor"><i data-lucide="notebook-pen" aria-hidden="true"></i><span>Notepad</span></button>
+          <button class="kd-shortcut cursor-interaction" data-open="console"><i data-lucide="terminal" aria-hidden="true"></i><span>Console</span></button>
+          <button class="kd-shortcut cursor-interaction" data-open="files"><i data-lucide="folder" aria-hidden="true"></i><span>My files</span></button>
+          <button class="kd-shortcut cursor-interaction" data-document="hello.c"><i data-lucide="file-code-2" aria-hidden="true"></i><span>hello.c</span></button>
+        </nav>
+        <div class="kd-wordmark" aria-hidden="true">KernOS<span>Desktop</span></div>
+
+        <section class="kd-window kd-editor kd-active" data-app="editor" aria-label="Notepad window">
+          <header class="kd-titlebar">
+            <span class="kd-app-title"><i data-lucide="notebook-pen" aria-hidden="true"></i><span class="kd-document-title">hello.c — Notepad</span></span>
+            <div class="kd-window-actions">
+              <button class="cursor-interaction" data-action="minimize" aria-label="Minimize Notepad">−</button>
+              <button class="cursor-interaction" data-action="maximize" aria-label="Maximize Notepad">□</button>
+              <button class="cursor-interaction" data-action="close" aria-label="Close Notepad">×</button>
+            </div>
+          </header>
+          <nav class="kd-menubar" aria-label="Notepad menus">
+            <button class="cursor-interaction" data-menu="file" aria-expanded="false">File</button>
+            <button class="cursor-interaction" data-menu="edit" aria-expanded="false">Edit</button>
+            <button class="cursor-interaction" data-menu="view" aria-expanded="false">View</button>
+          </nav>
+          <div class="kd-menu" data-popup="file" hidden>
+            <button class="cursor-interaction" data-command="new">New document<span>Ctrl+N</span></button>
+            <button class="cursor-interaction" data-open="files">Open…<span>Ctrl+O</span></button>
+            <button class="cursor-interaction" data-command="save">Save<span>Ctrl+S</span></button>
+            <hr><button class="cursor-interaction" data-action="close">Close</button>
+          </div>
+          <div class="kd-menu" data-popup="edit" hidden>
+            <button class="cursor-interaction" data-command="select">Select all<span>Ctrl+A</span></button>
+            <button class="cursor-interaction" data-command="insert">Insert greeting</button>
+          </div>
+          <div class="kd-menu" data-popup="view" hidden>
+            <button class="cursor-interaction" data-command="wrap">Toggle word wrap</button>
+            <button class="cursor-interaction" data-command="large">Toggle larger text</button>
+          </div>
+          <div class="kd-editor-tools">
+            <button class="cursor-interaction" data-command="save"><i data-lucide="save" aria-hidden="true"></i>Save</button>
+            <span class="kd-path">My files / hello.c</span>
+          </div>
+          <textarea class="kd-source" spellcheck="false" wrap="off" aria-label="C source in Notepad">#include &lt;stdio.h&gt;
+
+int main(void)
+{
+    puts("Hello from KernOS!");
+    return 0;
+}
+</textarea>
+          <footer class="kd-status"><span class="kd-save-status" aria-live="polite">Saved</span><span class="kd-caret">Ln 1, Col 1</span><span>Plain text · C</span></footer>
+        </section>
+
+        <section class="kd-window kd-console" data-app="console" aria-label="Console window">
+          <header class="kd-titlebar">
+            <span class="kd-app-title"><i data-lucide="terminal" aria-hidden="true"></i>Console</span>
+            <div class="kd-window-actions">
+              <button class="cursor-interaction" data-action="minimize" aria-label="Minimize Console">−</button>
+              <button class="cursor-interaction" data-action="maximize" aria-label="Maximize Console">□</button>
+              <button class="cursor-interaction" data-action="close" aria-label="Close Console">×</button>
+            </div>
+          </header>
+          <div class="kd-terminal-body">
+            <pre class="kd-output" aria-live="polite">KernOS console
+
+&gt; cc hello.c
+Created HELLO.ELF
+&gt; run hello
+Hello from KernOS!
+Process exited with code 0.
+</pre>
+            <form class="kd-prompt"><span aria-hidden="true">&gt;</span><input aria-label="Console command" autocomplete="off" spellcheck="false" placeholder="Type help"><button class="cursor-interaction" type="submit" aria-label="Execute sample console command">↵</button></form>
+          </div>
+          <footer class="kd-status"><span>My files</span><span>Sample session</span></footer>
+        </section>
+
+        <section class="kd-window kd-files" data-app="files" aria-label="My files window" hidden>
+          <header class="kd-titlebar">
+            <span class="kd-app-title"><i data-lucide="folder" aria-hidden="true"></i>My files</span>
+            <div class="kd-window-actions"><button class="cursor-interaction" data-action="close" aria-label="Close My files">×</button></div>
+          </header>
+          <div class="kd-file-location"><i data-lucide="hard-drive" aria-hidden="true"></i>KernOS / My files</div>
+          <div class="kd-file-list">
+            <button class="cursor-interaction" data-document="hello.c"><i data-lucide="file-code-2" aria-hidden="true"></i><span>hello.c<small>C source</small></span><span>Open</span></button>
+            <button class="cursor-interaction" data-document="notes.txt"><i data-lucide="file-text" aria-hidden="true"></i><span>notes.txt<small>Text document</small></span><span>Open</span></button>
+          </div>
+          <footer class="kd-status"><span>2 documents</span></footer>
+        </section>
+
+        <div class="kd-start-menu" hidden>
+          <div class="kd-start-label">KernOS</div>
+          <button class="cursor-interaction" data-open="editor"><i data-lucide="notebook-pen" aria-hidden="true"></i>Notepad</button>
+          <button class="cursor-interaction" data-open="console"><i data-lucide="terminal" aria-hidden="true"></i>Console</button>
+          <button class="cursor-interaction" data-open="files"><i data-lucide="folder" aria-hidden="true"></i>My files</button>
+        </div>
+        <footer class="kd-taskbar">
+          <button class="kd-start cursor-interaction" aria-label="Open application menu" aria-expanded="false"><span class="kd-mark">K</span><span>Applications</span></button>
+          <div class="kd-tasks">
+            <button class="cursor-interaction kd-task-active" data-task="editor"><i data-lucide="notebook-pen" aria-hidden="true"></i><span>Notepad</span></button>
+            <button class="cursor-interaction" data-task="console"><i data-lucide="terminal" aria-hidden="true"></i><span>Console</span></button>
+            <button class="cursor-interaction" data-task="files" hidden><i data-lucide="folder" aria-hidden="true"></i><span>My files</span></button>
+          </div>
+          <span class="kd-tray">Design preview</span>
+        </footer>
+      </div>
+    </section>
+    <section data-variant="Clean" aria-label="Clean KernOS desktop" hidden><div class="kd-clean-mount"></div></section>
+    <section data-variant="Workbench" aria-label="Workbench KernOS desktop" hidden><div class="kd-workbench-mount"></div></section>
+    <section data-variant="Paper" aria-label="Paper KernOS desktop" hidden><div class="kd-paper-mount"></div></section>
+    <section data-variant="Retro" aria-label="Retro KernOS desktop" hidden><div class="kd-retro-mount"></div></section>
+    <section data-variant="Midnight" aria-label="Midnight KernOS desktop" hidden><div class="kd-midnight-mount"></div></section>
+  </div>
+</div>
+
+<style>
+#kernos-desktop-concept { color-scheme: light dark; font-family: 'Segoe UI', Arial, sans-serif; font-size:14px; }
+#kernos-desktop-concept * { box-sizing:border-box; }
+#kernos-desktop-concept [hidden] { display:none !important; }
+#kernos-desktop-concept .kd-desktop {
+  --kd-wall:light-dark(#d2e1e0,#173235); --kd-ink:light-dark(#20383a,#e1eeec);
+  --kd-panel:light-dark(#f0efeb,#283337); --kd-paper:light-dark(#fffffc,#20282b);
+  --kd-text:light-dark(#20292c,#e5e9e7); --kd-soft:light-dark(#636d6e,#afbbba);
+  --kd-border:light-dark(#9caead,#536366); --kd-title:#355e65; --kd-title-text:#f6f9f7;
+  --kd-console:light-dark(#18282d,#132126); --kd-console-text:#dce8e4;
+  position:relative; width:100%; height:640px; overflow:hidden;
+  background:var(--kd-wall); color:var(--kd-ink); isolation:isolate;
+}
+#kernos-desktop-concept button, #kernos-desktop-concept input, #kernos-desktop-concept textarea { font:inherit; }
+#kernos-desktop-concept button { color:inherit; }
+#kernos-desktop-concept button:focus-visible, #kernos-desktop-concept input:focus-visible, #kernos-desktop-concept textarea:focus-visible { outline:2px solid var(--kd-title); outline-offset:2px; }
+#kernos-desktop-concept i, #kernos-desktop-concept svg { flex-shrink:0; width:17px; height:17px; }
+#kernos-desktop-concept .kd-icons { position:absolute; left:16px; top:22px; display:grid; gap:14px; z-index:1; }
+#kernos-desktop-concept .kd-shortcut { display:flex; flex-direction:column; align-items:center; gap:7px; width:80px; padding:9px 3px; background:transparent; border:1px solid transparent; border-radius:3px; }
+#kernos-desktop-concept .kd-shortcut svg, #kernos-desktop-concept .kd-shortcut i { width:32px; height:32px; stroke-width:1.5; }
+#kernos-desktop-concept .kd-shortcut:hover { background:light-dark(#ffffff50,#ffffff12); border-color:var(--kd-border); }
+#kernos-desktop-concept .kd-wordmark { position:absolute; right:30px; bottom:80px; font-size:38px; letter-spacing:-2px; opacity:.3; }
+#kernos-desktop-concept .kd-wordmark span { display:block; font-size:12px; letter-spacing:3px; text-align:right; }
+#kernos-desktop-concept .kd-window { position:absolute; display:flex; flex-direction:column; background:var(--kd-panel); color:var(--kd-text); border:1px solid var(--kd-border); box-shadow:0 10px 28px #00000024; min-width:260px; min-height:190px; max-width:calc(100% - 24px); max-height:calc(100% - 74px); resize:both; overflow:hidden; z-index:2; border-radius:3px; }
+#kernos-desktop-concept .kd-editor { left:115px; top:42px; width:57%; height:370px; z-index:3; }
+#kernos-desktop-concept .kd-console { right:25px; top:285px; width:47%; height:275px; }
+#kernos-desktop-concept .kd-files { left:165px; top:145px; width:430px; height:290px; }
+#kernos-desktop-concept .kd-window.kd-maximized { left:8px !important; top:8px !important; width:calc(100% - 16px) !important; height:calc(100% - 66px) !important; max-width:none; max-height:none; resize:none; }
+#kernos-desktop-concept .kd-titlebar { display:flex; align-items:center; justify-content:space-between; min-height:35px; padding:0 4px 0 11px; gap:8px; background:light-dark(#d4dbd9,#364448); color:var(--kd-text); cursor:grab; user-select:none; touch-action:none; }
+#kernos-desktop-concept .kd-active .kd-titlebar { background:var(--kd-title); color:var(--kd-title-text); }
+#kernos-desktop-concept .kd-app-title { display:flex; align-items:center; gap:8px; font-weight:500; min-width:0; }
+#kernos-desktop-concept .kd-document-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#kernos-desktop-concept .kd-window-actions { display:flex; align-items:center; gap:1px; }
+#kernos-desktop-concept .kd-window-actions button { border:0; background:transparent; min-width:29px; height:27px; font-size:18px; padding:0; }
+#kernos-desktop-concept .kd-window-actions button:hover { background:#ffffff25; }
+#kernos-desktop-concept .kd-menubar { display:flex; gap:2px; padding:2px 6px; border-bottom:1px solid var(--kd-border); }
+#kernos-desktop-concept .kd-menubar button { background:transparent; border:0; padding:5px 9px; }
+#kernos-desktop-concept .kd-menubar button:hover, #kernos-desktop-concept .kd-menu button:hover { background:light-dark(#dce5e3,#3a4b50); }
+#kernos-desktop-concept .kd-editor-tools { display:flex; align-items:center; gap:14px; padding:7px 12px; border-bottom:1px solid var(--kd-border); }
+#kernos-desktop-concept .kd-editor-tools button { display:flex; align-items:center; gap:6px; background:var(--kd-paper); border:1px solid var(--kd-border); padding:4px 9px; border-radius:2px; }
+#kernos-desktop-concept .kd-path { font-size:12px; color:var(--kd-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#kernos-desktop-concept .kd-source { flex:1; min-height:80px; border:0; border-radius:0; margin:0; padding:15px 18px; width:100%; background:var(--kd-paper); color:var(--kd-text); font-family:Consolas,'Courier New',monospace; font-size:14px; line-height:1.65; resize:none; tab-size:4; }
+#kernos-desktop-concept .kd-source:focus-visible { outline-offset:-2px; }
+#kernos-desktop-concept .kd-status { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:5px 12px; border-top:1px solid var(--kd-border); padding:5px 10px; min-height:28px; font-size:11px; color:var(--kd-soft); background:var(--kd-panel); }
+#kernos-desktop-concept .kd-terminal-body { flex:1; min-height:0; background:var(--kd-console); color:var(--kd-console-text); padding:15px; overflow:auto; }
+#kernos-desktop-concept .kd-output { font:12px/1.65 Consolas,'Courier New',monospace; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; background:transparent; color:inherit; }
+#kernos-desktop-concept .kd-prompt { display:flex; align-items:center; gap:9px; margin-top:7px; font:12px Consolas,'Courier New',monospace; }
+#kernos-desktop-concept .kd-prompt input { width:0; flex:1; min-width:0; background:transparent; color:inherit; border:0; padding:3px 0; font:inherit; }
+#kernos-desktop-concept .kd-prompt input::placeholder { color:#a2b5b3; }
+#kernos-desktop-concept .kd-prompt button { background:transparent; color:inherit; border:1px solid #60797b; padding:2px 7px; }
+#kernos-desktop-concept .kd-menu { position:absolute; top:66px; left:8px; width:230px; padding:5px; border:1px solid var(--kd-border); background:var(--kd-panel); box-shadow:0 5px 16px #00000030; z-index:20; }
+#kernos-desktop-concept .kd-menu button { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:8px 9px; width:100%; border:0; background:transparent; text-align:left; }
+#kernos-desktop-concept .kd-menu button span { font-size:11px; color:var(--kd-soft); }
+#kernos-desktop-concept .kd-menu hr { border:0; border-top:1px solid var(--kd-border); margin:4px 0; }
+#kernos-desktop-concept .kd-file-location { display:flex; align-items:center; gap:8px; padding:12px 15px; border-bottom:1px solid var(--kd-border); font-size:12px; }
+#kernos-desktop-concept .kd-file-list { flex:1; background:var(--kd-paper); padding:8px; }
+#kernos-desktop-concept .kd-file-list button { display:flex; align-items:center; gap:12px; width:100%; text-align:left; padding:12px; border:0; background:transparent; }
+#kernos-desktop-concept .kd-file-list button:hover { background:light-dark(#e5edeb,#34464a); }
+#kernos-desktop-concept .kd-file-list button>span:nth-child(2) { flex:1; }
+#kernos-desktop-concept .kd-file-list small { display:block; font-size:11px; color:var(--kd-soft); margin-top:3px; }
+#kernos-desktop-concept .kd-file-list button>span:last-child { color:var(--kd-soft); font-size:12px; }
+#kernos-desktop-concept .kd-taskbar { position:absolute; bottom:0; left:0; right:0; min-height:48px; padding:6px 10px; display:flex; align-items:center; gap:10px; background:var(--kd-panel); border-top:1px solid var(--kd-border); z-index:100; }
+#kernos-desktop-concept .kd-start { display:flex; gap:8px; align-items:center; font-weight:500; }
+#kernos-desktop-concept .kd-taskbar button { border:1px solid var(--kd-border); background:var(--kd-paper); border-radius:3px; min-height:34px; padding:5px 11px; }
+#kernos-desktop-concept .kd-mark { display:grid; place-items:center; font-weight:500; width:21px; height:21px; background:var(--kd-title); color:var(--kd-title-text); }
+#kernos-desktop-concept .kd-tasks { display:flex; flex:1; gap:5px; min-width:0; }
+#kernos-desktop-concept .kd-tasks button { display:flex; align-items:center; justify-content:center; gap:7px; }
+#kernos-desktop-concept .kd-tasks .kd-task-active { background:light-dark(#d9e7e4,#3a555a); box-shadow:inset 0 -2px var(--kd-title); }
+#kernos-desktop-concept .kd-tray { font-size:11px; color:var(--kd-soft); white-space:nowrap; }
+#kernos-desktop-concept .kd-start-menu { position:absolute; bottom:53px; left:10px; width:210px; background:var(--kd-panel); color:var(--kd-text); border:1px solid var(--kd-border); box-shadow:0 6px 18px #00000025; z-index:101; padding:6px; }
+#kernos-desktop-concept .kd-start-label { padding:12px 10px; font-weight:500; border-bottom:1px solid var(--kd-border); margin-bottom:4px; }
+#kernos-desktop-concept .kd-start-menu button { display:flex; align-items:center; gap:10px; border:0; background:transparent; width:100%; text-align:left; padding:10px; }
+#kernos-desktop-concept .kd-start-menu button:hover { background:light-dark(#dce5e3,#3a4b50); }
+#kernos-desktop-concept .kd-clean { --kd-wall:light-dark(#e7e9e4,#202c2b); --kd-panel:light-dark(#f7f7f2,#2d3937); --kd-title:#49645a; }
+#kernos-desktop-concept .kd-clean .kd-icons { display:flex; gap:12px; top:16px; left:22px; }
+#kernos-desktop-concept .kd-clean .kd-editor { top:123px; left:28px; width:57%; height:365px; }
+#kernos-desktop-concept .kd-clean .kd-console { top:205px; right:25px; width:46%; height:290px; }
+#kernos-desktop-concept .kd-clean .kd-window { border-radius:12px; }
+#kernos-desktop-concept .kd-clean .kd-titlebar { min-height:43px; }
+#kernos-desktop-concept .kd-clean .kd-taskbar { bottom:14px; left:50%; right:auto; transform:translateX(-50%); width:max-content; max-width:calc(100% - 24px); border:1px solid var(--kd-border); border-radius:12px; padding:7px; box-shadow:0 5px 20px #00000018; }
+#kernos-desktop-concept .kd-clean .kd-taskbar button { border:0; background:transparent; }
+#kernos-desktop-concept .kd-clean .kd-tasks .kd-task-active { background:light-dark(#e1e9df,#42554c); box-shadow:none; }
+#kernos-desktop-concept .kd-clean .kd-tray { display:none; }
+#kernos-desktop-concept .kd-clean .kd-start-menu { left:calc(50% - 190px); bottom:73px; border-radius:10px; }
+#kernos-desktop-concept .kd-top-panel { position:absolute; top:0; left:0; right:0; height:36px; display:flex; align-items:center; justify-content:space-between; padding:0 20px; background:var(--kd-panel); color:var(--kd-text); border-bottom:1px solid var(--kd-border); font-size:12px; }
+#kernos-desktop-concept .kd-workbench { --kd-wall:light-dark(#d7e2ee,#172936); --kd-title:#315a85; --kd-border:light-dark(#a0b2c6,#4d657c); }
+#kernos-desktop-concept .kd-workbench .kd-icons { top:62px; left:12px; gap:16px; }
+#kernos-desktop-concept .kd-workbench .kd-editor { left:116px; top:65px; width:59%; height:418px; }
+#kernos-desktop-concept .kd-workbench .kd-console { right:20px; top:302px; width:46%; height:258px; }
+#kernos-desktop-concept .kd-workbench .kd-titlebar { min-height:39px; }
+#kernos-desktop-concept .kd-workbench .kd-taskbar { left:104px; }
+#kernos-desktop-concept .kd-workbench .kd-wordmark { right:26px; top:72px; bottom:auto; font-size:28px; }
+#kernos-desktop-concept .kd-paper { --kd-wall:light-dark(#e8e1d3,#2e2b26); --kd-panel:light-dark(#f4efe4,#38342e); --kd-paper:light-dark(#fffdf5,#25231f); --kd-title:light-dark(#e5d9c3,#51483a); --kd-title-text:light-dark(#473e30,#fff4e1); --kd-ink:light-dark(#534735,#eee1cc); --kd-border:light-dark(#c5b89e,#6d604b); --kd-console:light-dark(#f5efdf,#29261f); --kd-console-text:light-dark(#443b2d,#ebdfc9); }
+#kernos-desktop-concept .kd-paper .kd-icons { top:28px; left:12px; gap:20px; }
+#kernos-desktop-concept .kd-paper .kd-editor { left:112px; top:24px; width:calc(100% - 136px); height:345px; }
+#kernos-desktop-concept .kd-paper .kd-console { left:112px; right:auto; top:385px; width:calc(100% - 136px); height:192px; }
+#kernos-desktop-concept .kd-paper .kd-window { border-radius:0; box-shadow:2px 3px 0 light-dark(#c5b89e70,#00000030); }
+#kernos-desktop-concept .kd-paper .kd-titlebar { background:var(--kd-title); color:var(--kd-title-text); }
+#kernos-desktop-concept .kd-paper .kd-editor-tools { display:none; }
+#kernos-desktop-concept .kd-paper .kd-taskbar { background:transparent; border:0; }
+#kernos-desktop-concept .kd-paper .kd-wordmark { display:none; }
+#kernos-desktop-concept .kd-retro { --kd-wall:light-dark(#357f86,#16474d); --kd-panel:light-dark(#d1cec7,#454747); --kd-paper:light-dark(#fffef9,#242929); --kd-title:#243d88; --kd-border:light-dark(#777a78,#7b8584); font-family:'Courier New',monospace; }
+#kernos-desktop-concept .kd-retro .kd-window { border:3px ridge light-dark(#e8e7df,#6b7675); border-radius:0; box-shadow:5px 5px 0 #00000045; }
+#kernos-desktop-concept .kd-retro .kd-titlebar { min-height:29px; padding-left:6px; }
+#kernos-desktop-concept .kd-retro .kd-editor { left:124px; top:35px; width:61%; height:357px; }
+#kernos-desktop-concept .kd-retro .kd-console { right:28px; top:328px; width:54%; height:235px; }
+#kernos-desktop-concept .kd-retro .kd-window-actions button { background:var(--kd-panel); color:var(--kd-text); border:2px outset var(--kd-border); min-width:23px; height:22px; }
+#kernos-desktop-concept .kd-retro .kd-taskbar { border-top:3px ridge var(--kd-border); }
+#kernos-desktop-concept .kd-retro .kd-taskbar button { border:2px outset var(--kd-border); border-radius:0; }
+#kernos-desktop-concept .kd-retro .kd-shortcut { color:#f6ffff; text-shadow:1px 1px #123a3e; }
+#kernos-desktop-concept .kd-retro .kd-editor-tools { display:none; }
+#kernos-desktop-concept .kd-midnight { color-scheme:dark; --kd-wall:#171d27; --kd-ink:#e6e3dc; --kd-panel:#29303c; --kd-paper:#202733; --kd-text:#ece9e1; --kd-soft:#b8c1cf; --kd-border:#4b5668; --kd-title:#414b5c; --kd-title-text:#fff2d4; --kd-console:#141b26; --kd-console-text:#e4c78e; }
+#kernos-desktop-concept .kd-midnight .kd-top-panel { height:42px; background:#232a36; }
+#kernos-desktop-concept .kd-midnight .kd-icons { left:auto; right:18px; top:68px; }
+#kernos-desktop-concept .kd-midnight .kd-shortcut { color:#e4c78e; }
+#kernos-desktop-concept .kd-midnight .kd-editor { left:24px; top:68px; width:61%; height:393px; }
+#kernos-desktop-concept .kd-midnight .kd-console { right:122px; top:325px; width:48%; height:234px; }
+#kernos-desktop-concept .kd-midnight .kd-window { border-radius:7px; box-shadow:0 12px 32px #00000045; }
+#kernos-desktop-concept .kd-midnight .kd-taskbar { left:24px; right:24px; bottom:12px; border:1px solid var(--kd-border); border-radius:7px; }
+#kernos-desktop-concept .kd-midnight .kd-mark { background:#e4c78e; color:#202733; }
+#kernos-desktop-concept .kd-midnight .kd-wordmark { display:none; }
+@media(max-width:600px) {
+  #kernos-desktop-concept .kd-desktop { height:940px; padding-top:110px; }
+  #kernos-desktop-concept .kd-icons, #kernos-desktop-concept .kd-clean .kd-icons { display:flex; gap:1px; left:8px; top:12px; right:8px; justify-content:space-around; }
+  #kernos-desktop-concept .kd-shortcut { width:68px; font-size:12px; }
+  #kernos-desktop-concept .kd-window, #kernos-desktop-concept .kd-clean .kd-window { position:relative; left:auto; right:auto; top:auto; width:calc(100% - 24px); margin:12px; min-width:0; max-width:none; resize:none; }
+  #kernos-desktop-concept .kd-editor, #kernos-desktop-concept .kd-clean .kd-editor { height:390px; }
+  #kernos-desktop-concept .kd-console, #kernos-desktop-concept .kd-clean .kd-console { height:275px; }
+  #kernos-desktop-concept .kd-files { position:absolute; left:0; top:150px; height:280px; }
+  #kernos-desktop-concept .kd-titlebar { cursor:default; }
+  #kernos-desktop-concept .kd-taskbar { gap:5px; }
+  #kernos-desktop-concept .kd-taskbar button { padding:5px 8px; }
+  #kernos-desktop-concept .kd-start>span:last-child, #kernos-desktop-concept .kd-tray { display:none; }
+  #kernos-desktop-concept .kd-clean .kd-start-menu { left:12px; }
+  #kernos-desktop-concept .kd-wordmark { bottom:75px; }
+  #kernos-desktop-concept .kd-source { font-size:16px; }
+  #kernos-desktop-concept .kd-workbench, #kernos-desktop-concept .kd-midnight { padding-top:148px; }
+  #kernos-desktop-concept .kd-workbench .kd-icons, #kernos-desktop-concept .kd-midnight .kd-icons { top:50px; left:8px; right:8px; }
+  #kernos-desktop-concept .kd-desktop .kd-window { left:auto; right:auto; top:auto; width:calc(100% - 24px); }
+  #kernos-desktop-concept .kd-desktop .kd-editor { height:390px; }
+  #kernos-desktop-concept .kd-desktop .kd-console { height:275px; }
+  #kernos-desktop-concept .kd-desktop .kd-files { position:absolute; top:160px; left:0; }
+  #kernos-desktop-concept .kd-workbench .kd-taskbar { left:0; }
+  #kernos-desktop-concept .kd-midnight .kd-taskbar { left:8px; right:8px; }
+  #kernos-desktop-concept .kd-workbench .kd-wordmark { display:none; }
+}
+</style>
+
+<script>
+(() => {
+  const root = document.getElementById('kernos-desktop-concept');
+  const original = root.querySelector('.kd-classic');
+  const designs = ['classic', 'clean', 'workbench', 'paper', 'retro', 'midnight'];
+  const desktops = [original];
+  designs.slice(1).forEach(name => {
+    const desktop = original.cloneNode(true);
+    desktop.classList.replace('kd-classic', 'kd-' + name);
+    desktop.setAttribute('aria-label', name[0].toUpperCase() + name.slice(1) + ' desktop with Notepad and Console');
+    if (name === 'workbench' || name === 'midnight') {
+      const panel = document.createElement('header');
+      panel.className = 'kd-top-panel';
+      const brand = document.createElement('span');
+      brand.textContent = 'KernOS / ' + (name === 'workbench' ? 'Workbench' : 'Desktop');
+      const session = document.createElement('span');
+      session.textContent = name === 'workbench' ? 'Workspace 1' : 'Local session';
+      panel.append(brand, session); desktop.prepend(panel);
+    }
+    root.querySelector('.kd-' + name + '-mount').replaceWith(desktop);
+    desktops.push(desktop);
+  });
+  const sourceSample = original.querySelector('.kd-source').value;
+  desktops.forEach((desktop, variantIndex) => {
+    const designKey = designs[variantIndex];
+    const designLabel = designKey[0].toUpperCase() + designKey.slice(1);
+    const editor = desktop.querySelector('[data-app="editor"]');
+    const source = desktop.querySelector('.kd-source');
+    const output = desktop.querySelector('.kd-output');
+    const documents = {'hello.c':sourceSample, 'notes.txt':'My KernOS workspace\n\nWrite a program in Notepad.\nSave it, compile it in Console, and run it.\n'};
+    let fileName = 'hello.c';
+    let dirty = false;
+    let z = 5;
+    let saved = null;
+    try { saved = window.openai?.widgetState?.privateContent?.[designKey]; } catch (_) {}
+    if (saved && typeof saved.text === 'string') { source.value = saved.text; fileName = saved.fileName || fileName; dirty = !!saved.dirty; }
+    const persist = () => {
+      try {
+        const old = window.openai?.widgetState || {};
+        window.openai?.setWidgetState({modelContent:{desktopConcept:designLabel},privateContent:{[designKey]:{fileName,text:source.value.slice(0,4000),dirty}}})?.catch(() => {});
+      } catch (_) {}
+    };
+    const refreshDocument = () => {
+      desktop.querySelector('.kd-document-title').textContent = (dirty ? '* ' : '') + fileName + ' — Notepad';
+      desktop.querySelector('.kd-path').textContent = 'My files / ' + fileName;
+      desktop.querySelector('.kd-save-status').textContent = dirty ? 'Unsaved changes' : 'Saved';
+      const before = source.value.slice(0, source.selectionStart);
+      const lines = before.split('\n');
+      desktop.querySelector('.kd-caret').textContent = 'Ln ' + lines.length + ', Col ' + (lines[lines.length-1].length+1);
+    };
+    const closeMenus = () => {
+      desktop.querySelectorAll('.kd-menu').forEach(m => m.hidden = true);
+      desktop.querySelectorAll('[data-menu]').forEach(b => b.setAttribute('aria-expanded','false'));
+    };
+    const focus = win => {
+      desktop.querySelectorAll('.kd-window').forEach(w => w.classList.toggle('kd-active', w === win));
+      desktop.querySelectorAll('[data-task]').forEach(b => b.classList.toggle('kd-task-active', b.dataset.task === win.dataset.app));
+      win.style.zIndex = String(++z);
+    };
+    const open = app => {
+      const win = desktop.querySelector('[data-app="'+app+'"]');
+      win.hidden = false;
+      desktop.querySelector('[data-task="'+app+'"]').hidden = false;
+      desktop.querySelector('.kd-start-menu').hidden = true;
+      desktop.querySelector('.kd-start').setAttribute('aria-expanded','false');
+      closeMenus(); focus(win);
+    };
+    const save = () => { documents[fileName] = source.value; dirty = false; refreshDocument(); persist(); };
+    source.addEventListener('input', () => { dirty = true; refreshDocument(); });
+    source.addEventListener('click', refreshDocument);
+    source.addEventListener('keyup', refreshDocument);
+    source.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
+      if (e.key === 'Tab') { e.preventDefault(); source.setRangeText('    ',source.selectionStart,source.selectionEnd,'end'); dirty = true; refreshDocument(); }
+    });
+    desktop.querySelectorAll('.kd-window').forEach(win => {
+      win.addEventListener('pointerdown', () => focus(win));
+      const bar = win.querySelector('.kd-titlebar');
+      let drag = null;
+      bar.addEventListener('pointerdown', e => {
+        if (e.target.closest('button') || win.classList.contains('kd-maximized') || desktop.clientWidth <= 600) return;
+        const wr = win.getBoundingClientRect(), dr = desktop.getBoundingClientRect();
+        drag = {x:e.clientX,y:e.clientY,left:wr.left-dr.left,top:wr.top-dr.top};
+        win.style.left = drag.left+'px'; win.style.top = drag.top+'px'; win.style.right = 'auto';
+        bar.setPointerCapture(e.pointerId); e.preventDefault();
+      });
+      bar.addEventListener('pointermove', e => {
+        if (!drag) return;
+        win.style.left = Math.max(0,Math.min(desktop.clientWidth-win.offsetWidth,drag.left+e.clientX-drag.x))+'px';
+        win.style.top = Math.max(0,Math.min(desktop.clientHeight-90,drag.top+e.clientY-drag.y))+'px';
+      });
+      bar.addEventListener('pointerup', () => drag = null);
+      bar.addEventListener('pointercancel', () => drag = null);
+      bar.addEventListener('dblclick', e => { if (!e.target.closest('button')) win.classList.toggle('kd-maximized'); });
+    });
+    desktop.addEventListener('click', e => {
+      const button = e.target.closest('button');
+      if (!button) { closeMenus(); return; }
+      if (button.dataset.menu) {
+        const popup = desktop.querySelector('[data-popup="'+button.dataset.menu+'"]');
+        const show = popup.hidden; closeMenus(); popup.hidden = !show; button.setAttribute('aria-expanded',String(show)); return;
+      }
+      if (button.classList.contains('kd-start')) {
+        const menu = desktop.querySelector('.kd-start-menu'); menu.hidden = !menu.hidden; button.setAttribute('aria-expanded',String(!menu.hidden)); closeMenus(); return;
+      }
+      if (button.dataset.open) { open(button.dataset.open); return; }
+      if (button.dataset.task) {
+        const win = desktop.querySelector('[data-app="'+button.dataset.task+'"]');
+        if (!win.hidden && win.classList.contains('kd-active')) win.hidden = true; else open(button.dataset.task); return;
+      }
+      if (button.dataset.document) {
+        if (dirty) save();
+        fileName = button.dataset.document; source.value = documents[fileName] || ''; dirty = false;
+        open('editor'); refreshDocument(); persist(); return;
+      }
+      if (button.dataset.action) {
+        const win = button.closest('.kd-window');
+        if (button.dataset.action === 'maximize') win.classList.toggle('kd-maximized');
+        else { win.hidden = true; if (button.dataset.action === 'close') desktop.querySelector('[data-task="'+win.dataset.app+'"]').hidden = true; }
+        closeMenus(); return;
+      }
+      const command = button.dataset.command;
+      if (command === 'save') save();
+      if (command === 'new') { if (dirty) save(); fileName = 'untitled.txt'; source.value = ''; dirty = true; refreshDocument(); }
+      if (command === 'select') { source.focus(); source.select(); }
+      if (command === 'insert') { source.setRangeText('Hello from KernOS!',source.selectionStart,source.selectionEnd,'end'); dirty = true; refreshDocument(); }
+      if (command === 'wrap') source.wrap = source.wrap === 'off' ? 'soft' : 'off';
+      if (command === 'large') source.style.fontSize = source.style.fontSize === '16px' ? '14px' : '16px';
+      closeMenus();
+    });
+    desktop.querySelector('.kd-prompt').addEventListener('submit', e => {
+      e.preventDefault();
+      const input = e.target.querySelector('input'); const command = input.value.trim(); if (!command) return;
+      let result = '';
+      if (command === 'clear') output.textContent = '';
+      else {
+        if (command === 'help') result = 'Preview commands: ls, cc hello.c, run hello, clear';
+        else if (command === 'ls') result = Object.keys(documents).join('    ');
+        else if (/^cc\s+/i.test(command)) result = 'Design preview: sample build completed.\nCreated HELLO.ELF';
+        else if (/^run\s+/i.test(command)) { const match = documents['hello.c'].match(/puts\("([^"\n]*)"\)/); result = (match ? match[1] : 'Hello from KernOS!')+'\nProcess exited with code 0.'; }
+        else result = 'Sample console only. Type help for preview commands.';
+        output.textContent += '\n> '+command+'\n'+result+'\n';
+      }
+      input.value = ''; desktop.querySelector('.kd-terminal-body').scrollTop = 100000;
+    });
+    refreshDocument();
+    if (globalThis.Tweak) {
+      const settings = {icons:true,largeText:false};
+      const render = () => { desktop.querySelector('.kd-icons').hidden = !settings.icons; source.style.fontSize = settings.largeText ? '16px' : '14px'; };
+      const tweak = new Tweak({container:desktop,onChange:render});
+      tweak.addToggle(settings,'icons',{label:'Desktop icons'});
+      tweak.addToggle(settings,'largeText',{label:'Larger editor text'});
+    }
+  });
+  if (globalThis.lucide) lucide.createIcons();
+})();
+</script>

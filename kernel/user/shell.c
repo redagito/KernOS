@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <user/desktop.h>
+
+static int graphical;
 
 #define LINE_MAX 128
 
@@ -94,10 +97,11 @@ int main(void)
        The kernel's claim line ('focus: claim owner=N band=24..48')
        is the gate's cue, not this print. A refusal still boots: the
        OS just stays open mode. */
-    claim_band(0);
+    graphical = desktop(DESKTOP_ATTACH, 0, DESKTOP_CONSOLE) >= 0;
+    if (!graphical) claim_band(0);
     term_clear();
     puts("KernOS console | edit <file.c> | cc <file.c> [out.elf] | run <program>");
-    puts("Click a pane to focus it. Editor: Ctrl-S save, Ctrl-Q close.");
+    puts("Click a window to focus it. Notepad: Ctrl-S save, Ctrl-Q close.");
     char boot_args[128];
     if (process_args(boot_args, sizeof boot_args) >= 0 && !strcmp(boot_args, "--desktop")) {
         if (spawn_args("edit", "HELLO.C") < 0) puts("ksh: initial editor launch failed");
@@ -113,10 +117,17 @@ int main(void)
         if (!strcmp(line, ""))
             continue;
 
-        if (!strcmp(line, "exit"))
-            return 0;              /* crt0 -> exit(0); the kernel joins */
+        if (!strcmp(line, "exit")) {
+            if (graphical) { desktop(DESKTOP_HIDE, 0, 0); continue; }
+            return 0;
+        }
 
         if (!strncmp(line, "edit ", 5)) {
+            if (graphical) {
+                if (desktop(DESKTOP_OPEN, line + 5, 0) < 0)
+                    puts("edit: use an 8.3 filename");
+                continue;
+            }
             long pid = spawn_args("edit", line + 5);
             if (pid < 0) puts("ksh: editor launch failed");
             else printf("ksh: editor pid=%ld\n", pid);

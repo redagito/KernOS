@@ -39,3 +39,5 @@ int  fat_write_file(const char *name, const void *buf, u32 len);
 int  fat_save_file(const char *name, const void *buf, u32 len);
 int  fat_file_size(const char *name);             /* bytes, -1 = fail */
 void fat_stats(struct fat_info *out);
+struct fat_entry { char name[13]; u32 size; };
+int fat_list_root(struct fat_entry *entries, int capacity);

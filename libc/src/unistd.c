@@ -85,5 +85,7 @@ long term_clear(void) { return gate(SYSCALL_TERM, 0, 0, 0); }
 long term_move(long col, long row) { return gate(SYSCALL_TERM, 1, col, row); }
 long term_geometry(void) { return gate(SYSCALL_TERM, 2, 0, 0); }
 long term_caret(void) { return gate(SYSCALL_TERM, 3, 0, 0); }
+long term_style(long selected) { return gate(SYSCALL_TERM, 4, selected, 0); }
 long waitpid(long pid) { return gate(SYSCALL_WAITPID, pid, 0, 0); }
 long term_paint(const char *buf, size_t len) { return gate(SYSCALL_PAINT, (long)buf, len, 0); }
+long desktop(long op, void *data, long arg) { return gate(SYSCALL_DESKTOP, op, (long)data, arg); }

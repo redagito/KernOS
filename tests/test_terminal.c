@@ -14,6 +14,9 @@ void fbcon_cell_unmark(u32 col, u32 row) { (void)col; (void)row; }
 void serial_putc(char c) { (void)c; }
 void console_putc(char c) { (void)c; }
 void console_user_surfaces(void) {}
+int desktop_has_window(int tid, int parent) { (void)tid; (void)parent; return 0; }
+void desktop_putc(int t,int p,char c,int m) { (void)t;(void)p;(void)c;(void)m; }
+long desktop_term(int t,int p,long op,long col,long row) { (void)t;(void)p;(void)op;(void)col;(void)row;return -1; }
 static void check(int good, const char *what)
 { ++checks; if (!good) ++failed; printf("%s %s\n", good ? "PASS" : "FAIL", what); }
 int main(void)

@@ -830,7 +830,10 @@ chunk_loop:
     popl %ebx                          /* sectors left in this command */
 pio_sector:
     movw $0x1F7, %dx                   /* status: wait BSY=0, ERR kill */
-    movl $0xFFFF, %ecx                 /* bounded wait (~1s of spinning).
+    movl $0x400000, %ecx               /* bounded polling budget, NOT a
+                                          wall-clock second: a busy host
+                                          can delay QEMU's disk completion
+                                          beyond the former 65535 polls.
                                           FULL ECX: the 32-bit 'loop'
                                           decrements all of ECX, and the
                                           caller may leave garbage in the

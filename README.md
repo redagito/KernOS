@@ -6,30 +6,45 @@ our kernel. The bottom half of the OS is dictated by the hardware; the
 top half (ABI, libc, filesystem, shell, UI) is designed here, from a
 blank page.
 
+![KernOS Clean desktop running in QEMU, with C source in Notepad and the compiled program running in Console](docs/images/kernos-clean-desktop.png)
+
+The actual KernOS desktop in QEMU: edit, save, compile and run C inside the OS.
+
 ## Status
 
-In-OS C development works in QEMU (real-hardware test pending): boot to
-a userland text editor above an independent console, save C source on
+KernOS boots into the Clean graphical desktop: working application/file
+icons, overlapping movable and resizable windows, a dock, My files, a
+userland Notepad editor, and an independent console. The Harbor palette
+uses ink-blue wallpaper, warm white paper and teal active-window accents.
+Save C source on
 FAT32, compile with KCC (TinyCC), and run the resulting ELF program.
 The automated test types source through PS/2, checks output and exit
 status, introduces and corrects an error, and restarts the VM to reopen
 the saved source. It also exercises loops, structs, variadic functions,
 and floating literals. See [the plan and acceptance evidence](docs/DEVELOPMENT-WORKFLOW.md).
 
-Eleven host suites (`make hosttest`) currently pass 207 checks: fat32,
+Twelve host suites (`make hosttest`, or `scripts/test-native.ps1`) cover fat32,
 elf64, format, font, input, pmm, utf8, editor, terminal, and compiler
-arena, and PS/2 mouse direction/cursor edges. The kernel includes scheduling, isolated process address spaces,
+arena, PS/2 mouse direction/cursor edges, and desktop composition/input. The kernel includes scheduling, isolated process address spaces,
 blocking syscalls, and eager x87/SSE context preservation.
 
 ## Building
 
-Requires Docker Desktop (the container is the toolchain; see
-[Dockerfile](Dockerfile)):
+On Windows with LLVM and the Visual Studio C build tools installed, build
+and run directly without Docker:
+
+```powershell
+scripts\build-native.ps1  # builds the entire OS, libc and KCC locally
+scripts\run.ps1           # opens native QEMU
+scripts\test-native.ps1   # host regression suites
+```
+
+The Docker toolchain remains available (see [Dockerfile](Dockerfile)):
 
 ```powershell
 scripts\build.ps1      # produces build/kernos.img
 scripts\run.ps1        # opens native QEMU when installed; serial in terminal
-scripts\run.ps1 -Headless  # QEMU inside Docker, without a graphical window
+scripts\run.ps1 -Headless  # native QEMU, without a graphical window
 ```
 
 You can also double-click `build/KernOSLauncher.exe` in Explorer. The Windows
@@ -42,18 +57,25 @@ Move up to move the guest pointer up; no inverted input setting is required.
 The launcher records QEMU errors in `build/interactive-qemu.stderr` and
 shows an error dialog if QEMU exits unsuccessfully.
 
-The editor opens `HELLO.C` on startup. Type source and press **Ctrl-S**.
-Click the lower console pane, then enter:
+Notepad opens `HELLO.C` on startup. Type source and press **Ctrl-S**.
+Click Console in the dock, then enter:
 
 ```text
 cc HELLO.C
 run HELLO
 ```
 
-Click the editor to continue editing. Arrow keys, Home/End, Delete,
-Backspace and Tab are supported. **Ctrl-Q** closes a saved editor;
-unsaved edits require saving or explicit **Ctrl-X** discard. Close the
-current editor before opening another with `edit OTHER.C`. Console
+Click Notepad in the dock to continue editing. Drag title bars to move
+windows, use the bottom-right grip to resize, and use the title-bar
+buttons to minimize, maximize/restore or close. Desktop icons reopen
+windows; My files lists the real FAT32 root directory.
+
+File menus provide New/Open/Save/Save as/Close; Edit provides selection,
+cut/copy/paste. Mouse dragging selects text. **Ctrl-N/O/S/Q/A/X/C/V** and
+arrow keys, Home/End, Delete, Backspace and Tab work. Unsaved changes
+offer Save/Discard/Cancel; Save as asks before replacing an existing file.
+The clipboard stays inside Notepad. Console `edit OTHER.C` opens that
+document in the existing Notepad window. Console
 commands also include `cat FILE`, `echo TEXT`, `help`, and `exit`.
 
 Source is ASCII with short 8.3 filenames and a 16,383-byte limit. KCC
@@ -76,7 +98,13 @@ Run all acceptance checks inside the build container:
 make hosttest
 make image
 python3 tools/workflow-test.py
+python3 tools/desktop-test.py
 ```
+
+The native path uses `scripts/build-native.ps1 -TestOnly`,
+`scripts/test-native.ps1`, then `node tools/desktop-native-test.mjs`.
+The QEMU tests use disposable disk copies and never capture the desktop.
+See [desktop behavior, architecture and limits](docs/DESKTOP.md).
 
 ## Layout
 

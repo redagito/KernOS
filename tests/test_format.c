@@ -61,12 +61,14 @@ int main(void)
           !strcmp(buf, "-2147483648"), "%d of INT_MIN");
 
     check(fmt("%ld", 123456789L) == 9 && !strcmp(buf, "123456789"),
-          "%ld longs ride the AAP64 width");
+          "%ld long decimal formatting");
     check(fmt("%x", 0xdeadBEEF) == 8 && !strcmp(buf, "deadbeef"),
           "%x lowercase, full width");
     check(fmt("%x", 0) == 1 && !strcmp(buf, "0"), "%x of 0");
-    check(fmt("0x%lx", 0xFFFFFFFFFFFFFFFFUL) == 18 &&
-          !strcmp(buf, "0xffffffffffffffff"), "%lx max u64");
+    if (sizeof(unsigned long) == 8)
+        check(fmt("0x%lx", ~0UL) == 18 && !strcmp(buf, "0xffffffffffffffff"), "%lx max u64 (LP64)");
+    else
+        check(fmt("0x%lx", ~0UL) == 10 && !strcmp(buf, "0xffffffff"), "%lx follows host long width (guest is LP64)");
 
     check(fmt("%s", "text") == 4 && !strcmp(buf, "text"), "%s");
     check(fmt("%s", (char *)0) == 6 && !strcmp(buf, "(null)"), "%s NULL");

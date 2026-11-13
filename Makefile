@@ -63,6 +63,7 @@ KERNEL_OBJ := $(OBJ)/start64.o \
 	$(OBJ)/compo.o \
 	$(OBJ)/focus.o \
 	$(OBJ)/terminal.o \
+	$(OBJ)/desktop.o \
 	$(OBJ)/pci.o \
 	$(OBJ)/ahci.o \
 	$(OBJ)/fat32.o \
@@ -189,6 +190,7 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_editor $(BUILD)/test_terminal \
 	$(BUILD)/test_kcc_arena \
 	$(BUILD)/test_mouse \
+	$(BUILD)/test_desktop \
 	$(BUILD)/font.psf2 $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_fat32 $(BUILD)/testdisk.img $(BUILD)/u1.elf $(BUILD)/shell.elf
 	$(BUILD)/test_elf64 $(BUILD)/u1.elf
@@ -201,6 +203,11 @@ hosttest: $(BUILD)/testdisk.img $(BUILD)/test_fat32 $(BUILD)/test_elf64 \
 	$(BUILD)/test_terminal
 	$(BUILD)/test_kcc_arena
 	$(BUILD)/test_mouse
+	$(BUILD)/test_desktop
+
+$(BUILD)/test_desktop: tests/test_desktop.c kernel/arch/x86_64/desktop.c kernel/arch/x86_64/desktop.h include/user/desktop.h kernel/input.c kernel/utf8.c $(MAKEFILE_LIST)
+	@mkdir -p $(@D)
+	$(CC) $(HOST_CFLAGS) -Iinclude -Ikernel -o $@ tests/test_desktop.c kernel/input.c kernel/utf8.c
 
 $(BUILD)/test_mouse: tests/test_mouse.c kernel/arch/x86_64/cursor.c include/kernel/ps2_mouse.h $(MAKEFILE_LIST)
 	@mkdir -p $(@D)
@@ -339,6 +346,10 @@ $(OBJ)/console.o: kernel/arch/x86_64/console.c kernel/arch/x86_64/console.h
 	$(CC) $(KFLAGS) -c -o $@ $<
 
 $(OBJ)/terminal.o: kernel/arch/x86_64/terminal.c
+	@mkdir -p $(@D)
+	$(CC) $(KFLAGS) -c -o $@ $<
+
+$(OBJ)/desktop.o: kernel/arch/x86_64/desktop.c
 	@mkdir -p $(@D)
 	$(CC) $(KFLAGS) -c -o $@ $<
 

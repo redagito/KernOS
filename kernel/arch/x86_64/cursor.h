@@ -23,6 +23,8 @@
 
 #define CUR_W 8
 #define CUR_H 12
+#define CUR_LIGHT_PIXELS 16 /* white interior; dark outline stays visible on paper */
+void cursor_suspend(void);
 
 /* Map the LFB (idempotent through fb_map), paint the arrow at rest
    position, and run the save/erase/restore round-trip proof at the

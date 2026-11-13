@@ -11,6 +11,7 @@
 #include "focus.h"
 #include "terminal.h"
 #include "proc.h"
+#include "desktop.h"
 
 /*
  * The 0x80 syscall gate (M5.1+, docs/syscall-abi.md).
@@ -127,6 +128,7 @@ u64 sysc_user_exits(void)
 void syscall_dispatch(struct trapframe *tf)
 {
     u64 r;
+    if (desktop_active()) desktop_pump();
 
     switch (tf->rax) {
     case SYSCALL_PROBE:
@@ -175,6 +177,15 @@ void syscall_dispatch(struct trapframe *tf)
         }
         if ((tf->cs & 3) == 3 && !user_ptr_ok(tf->rsi, n)) {
             r = (u64)SYS_EINVAL;          /* buf must be P|U|W           */
+            break;
+        }
+        if (desktop_has_window((int)sched_tid(), sched_parent_tid())) {
+            for (;;) {
+                desktop_pump();
+                int got = desktop_read((int)sched_tid(), (char *)buf, n > 64 ? 64 : (int)n);
+                if (got) { r = got; break; }
+                sched_block(SCHED_WQ_KBD);
+            }
             break;
         }
         for (;;) {
@@ -362,6 +373,7 @@ void syscall_dispatch(struct trapframe *tf)
     }
 
     case SYSCALL_INPUT: {
+        if (desktop_active()) { desktop_pump(); r = 0; break; }
         /* M6.1: drain the event ring, NONBLOCKING. arg1 = user buffer
            of struct input_event (8 bytes each, include/kernel/input.h),
            arg2 = max events (one batch <= 64, like read's byte bound).
@@ -389,6 +401,27 @@ void syscall_dispatch(struct trapframe *tf)
            channel - button presses hit-test the claim bands and may
            re-home the owner (named lines on transitions only; the
            event ring itself is untouched). */
+        break;
+    }
+
+    case SYSCALL_DESKTOP: {
+        long op = (long)tf->rdi;
+        u64 size = op == DESKTOP_WAIT ? sizeof(struct desktop_event) :
+                   op == DESKTOP_INFO ? sizeof(struct desktop_info) :
+                   op == DESKTOP_DIALOG ? sizeof(struct desktop_dialog) : 0;
+        if ((tf->cs & 3) != 3 || !desktop_active() || op < 0 || op > DESKTOP_DIALOG ||
+            (size && (!tf->rsi || !user_ptr_ok(tf->rsi, size)))) { r = (u64)SYS_EINVAL; break; }
+        if (op == DESKTOP_OPEN) {
+            char name[13];
+            if (user_string(tf, tf->rsi, name, sizeof name) < 0) r = (u64)SYS_EINVAL;
+            else r = desktop_call(sched_tid(), op, name, tf->rdx);
+        } else if (op == DESKTOP_WAIT) {
+            for (;;) {
+                long got = desktop_call(sched_tid(), op, (void *)tf->rsi, tf->rdx);
+                if (got != 0) { r = got; break; }
+                sched_block(SCHED_WQ_KBD);
+            }
+        } else r = desktop_call(sched_tid(), op, (void *)tf->rsi, tf->rdx);
         break;
     }
 
@@ -498,6 +531,8 @@ void syscall_dispatch(struct trapframe *tf)
            readers into (likely open) mode. sched_exit_now never
            returns, so this is the only window. */
         focus_thread_exit((int)sched_tid());
+        desktop_exit((int)sched_tid());
+        desktop_flush();
         sched_exit_now(tf->rdi);           /* never returns            */
         /* not reached */
 
@@ -507,4 +542,5 @@ void syscall_dispatch(struct trapframe *tf)
     }
 
     tf->rax = r;
+    desktop_flush();
 }

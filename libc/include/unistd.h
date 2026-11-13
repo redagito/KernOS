@@ -45,6 +45,7 @@ long term_clear(void);
 long term_move(long col, long row);
 long term_geometry(void);
 long term_caret(void);
+long term_style(long selected);
 long waitpid(long pid);
 long term_paint(const char *buf, size_t len);
 

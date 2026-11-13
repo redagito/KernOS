@@ -14,8 +14,8 @@
 
 /* image data (MSB = leftmost). Rows 0..11. */
 static const unsigned char art[CUR_H] = {
-    0x80, 0xC0, 0xA0, 0x90, 0x88, 0x84,
-    0xFC, 0x80, 0x88, 0x94, 0xC0, 0x00,
+    0x80, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC,
+    0xFE, 0xF8, 0xD8, 0x8C, 0x0C, 0x00,
 };
 
 #define CUR_RGB   0xF8F8F8u           /* near-white ink */
@@ -46,8 +46,14 @@ static void paint_sprite(void)
 {
     for (u32 r = 0; r < CUR_H; ++r)
         for (u32 c = 0; c < CUR_W; ++c)
-            if (art[r] & (0x80u >> c))
-                fb_pixel_set(cx + c, cy + r, CUR_RGB);
+            if (art[r] & (0x80u >> c)) {
+                int edge = r == 0 || r + 1 == CUR_H || c == 0 || c + 1 == CUR_W;
+                if (!edge) edge = !(art[r-1] & (0x80u >> c)) ||
+                                  !(art[r+1] & (0x80u >> c)) ||
+                                  !(art[r] & (0x80u >> (c-1))) ||
+                                  !(art[r] & (0x80u >> (c+1)));
+                fb_pixel_set(cx + c, cy + r, edge ? 0x172c3du : CUR_RGB);
+            }
     painted = 1;
 }
 
@@ -59,6 +65,9 @@ static void restore_region(void)
             fb_pixel_set(cx + c, cy + r, save[r * CUR_W + c]);
     painted = 0;
 }
+
+/* Desktop damage is committed with the sprite temporarily removed. */
+void cursor_suspend(void) { restore_region(); }
 
 /* M6.4: the repaint-under path for a stale save. The save buffer is
    only trusted while the backdrop revision it was taken under still

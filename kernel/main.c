@@ -31,6 +31,7 @@
 #include "arch/x86_64/fbcon.h"
 #include "arch/x86_64/cursor.h"
 #include "arch/x86_64/focus.h"
+#include "arch/x86_64/desktop.h"
 
 /* M5.1: the v0 syscall ABI exercised from the caller side - the same
    four-step shape userland will use (docs/syscall-abi.md). RAX carries
@@ -293,6 +294,18 @@ void kernel_main(void)
                 console_puts("fb: pixel echo FAILED\n");
             }
 
+            {
+                const u32 sample[4] = {0x203040,0x506070,0x8090a0,0xb0c0d0};
+                fb_rect_blit(16,16,2,2,sample,2);
+                fb_rect_blit(w-1,h-1,2,2,sample,2);
+                int good = fb_pixel_get(16,16)==sample[0] &&
+                           fb_pixel_get(17,16)==sample[1] &&
+                           fb_pixel_get(16,17)==sample[2] &&
+                           fb_pixel_get(17,17)==sample[3] &&
+                           fb_pixel_get(w-1,h-1)==sample[0];
+                console_puts(good ? "fb: blit echo ok\n" : "fb: blit echo FAILED\n");
+            }
+
             /* M6.1 rect-substrate echo: the fill paints EXACTLY its
                area (ring guards around it stay their own color), the
                clipped corner fill paints exactly the 8x8 that is
@@ -467,12 +480,12 @@ void kernel_main(void)
        the sprite right one cell-set by a synthetic REL event batch -
        the cells it left are re-drawn from the console's own truth and
        read back bit-exact ('W' ink per cell), the sprite reads its
-       own 25 ink at the new spot. (2) RETURN: revision stands, so the
+       own light ink at the new spot. (2) RETURN: revision stands, so the
        FAST path restores the save - cell under the old spot exact
-       again, and the whole screen holds EXACTLY 25 cursor-ink pixels
+       again, and the whole screen holds exactly CUR_LIGHT_PIXELS white pixels
        (one sprite, no crumbs of any kind). (3) SCROLL: 48 forced
        newlines ride the sprite along the screen - the scroll repair
-       re-lands it, and a final full-screen scan proves 25 again and
+       re-lands it, and a final framebuffer-memory scan proves the count and
        the sprite still at its compositor position. */
     {
         if (fb_present() && cursor_x() != 0) {
@@ -492,7 +505,7 @@ void kernel_main(void)
             cursor_apply(&ev1, 1);
 
             /* cells left of the NEW slot must be exact 'W' bitmaps;
-               the sprite's 25 ink must sit in the new slot */
+               the sprite's light interior must sit in the new slot */
             for (u32 c = c0 - 1; c <= c0 + 1 && ok; ++c) {
                 u64 n = 0;
                 for (u32 y = r0 * gh; y < r0 * gh + gh; ++y)
@@ -504,7 +517,7 @@ void kernel_main(void)
             for (u32 y = cursor_y(); y < cursor_y() + 12; ++y)
                 for (u32 x = cursor_x(); x < cursor_x() + 8; ++x)
                     if (fb_pixel_get(x, y) == 0xF8F8F8) ++s;
-            if (s != 25) ok = 0;
+            if (s != CUR_LIGHT_PIXELS) ok = 0;
 
             /* (2) return: fast path through the untouched save */
             if (ok) {
@@ -525,7 +538,7 @@ void kernel_main(void)
             }
 
             /* (3) 48 scrolls: the sprite must stay exactly itself -
-               screen-wide cursor ink == 25, still parked at (mx,my) */
+               screen-wide light ink stays exact, still parked at (mx,my) */
             if (ok) {
                 for (u32 k = 0; k < 48; ++k)
                     fbcon_puts("\n");
@@ -533,12 +546,12 @@ void kernel_main(void)
                 for (u32 y = 0; y < fb_height(); ++y)
                     for (u32 x = 0; x < fb_width(); ++x)
                         if (fb_pixel_get(x, y) == 0xF8F8F8) ++all;
-                if (all != 25 || cursor_x() != mx || cursor_y() != my)
+                if (all != CUR_LIGHT_PIXELS || cursor_x() != mx || cursor_y() != my)
                     ok = 0;
             }
 
             if (ok)
-                console_puts("compo: z-order echo ok ink=25\n");
+                console_puts("compo: z-order echo ok light-ink=16\n");
             else
                 console_puts("compo: z-order echo FAILED\n");
         }
@@ -771,7 +784,7 @@ void kernel_main(void)
        on). Refusal is a named phase too - the negative control pairs
        "proc: elf refused - <reason>" with this line and, above all,
        with the absence of any ksh prompt. */
-    static u8 shell_img[16384];
+    static u8 shell_img[32768];
     {
         long got = fat_read_file(BENCH_SHELL_FILE, shell_img, sizeof shell_img);
         console_puts("elf: SHELL.ELF read bytes=");
@@ -780,6 +793,7 @@ void kernel_main(void)
         int stid = -1;
         if (got > 64) {
             __asm__ volatile("cli" ::: "memory");
+            desktop_init();
             stid = thread_spawn_user("shell", shell_img, (u64)got);
             if (stid > 0) sched_set_args(stid, "--desktop");
             __asm__ volatile("sti" ::: "memory");

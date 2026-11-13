@@ -62,6 +62,38 @@ v0 rules beyond the table:
 | 13 | `term` | op, col, row | surface clear/move/geometry/caret; -1 refused |
 | 14 | `waitpid` | child tid | that child's exit code; blocks; -1 invalid child |
 | 15 | `paint` | buf, n | surface bytes painted without serial echo; -1 refused |
+| 16 | `desktop` | operation, payload, argument | desktop operation result; -1 refused |
+
+### Desktop extension (2026-11-13)
+
+The fixed-size structures and constants are in `include/user/desktop.h`.
+`desktop(ATTACH,0,kind)` attaches one Notepad (1) or Console (2), returning
+its viewport geometry. A second owner of the same app is refused.
+`WAIT` validates and fills a 32-byte `desktop_event`, blocking on the
+keyboard wait queue until an event exists. Events carry keys, commands,
+cell-relative clicks/drags, accepted filenames, confirmation results or
+resize notifications. Mouse and keyboard IRQs wake that queue; the gate
+always rechecks it after waking.
+
+`INFO` copies a 140-byte title/status/dirty structure; strings are bounded
+and terminated in kernel memory. `HIDE` hides the caller's window without
+terminating its process. `OPEN` validates a NUL-terminated 8.3-sized name
+and requests that document in Notepad. `DIALOG` copies a 60-byte structure:
+kind 1 filename, 2 save changes, 3 replace existing file. Confirmation
+results are 1 accept/save, 2 discard, 3 cancel; canceled filenames are empty.
+The payload's complete mapped span is checked before use. Calls require
+a user process and, except ATTACH, a window attached to that caller.
+
+With the desktop active, the window manager owns the raw event ring;
+legacy `input` returns zero instead of draining it. `read(0)` receives only
+the focused caller/parent window's queued key bytes. `write` and `paint`
+target independent window backing cells; unclaimed children inherit their
+parent's Console. Editor `write` is serial diagnostics only. `term` ops
+0/1/2 retain clear/move/query semantics relative to the viewport; op 3
+draws a thin caret, and new op 4 sets selection styling for following
+painted cells (`col` zero/one). Painting the final editor cell does not
+scroll the document. Existing row-band behavior remains for non-desktop
+boots. No existing syscall number is reordered.
 
 ### Development workflow extension (2026-11-06)
 

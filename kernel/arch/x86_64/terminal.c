@@ -3,6 +3,7 @@
 #include "fbcon.h"
 #include "console.h"
 #include "serial.h"
+#include "desktop.h"
 #include <kernel/utf8.h>
 
 struct terminal { u32 col, row; int caret; struct utf8_state utf8; };
@@ -44,6 +45,7 @@ static void newline(struct terminal *t, int first, int height)
 
 static void putc_impl(int tid, int parent, char c, int mirror)
 {
+    if (desktop_has_window(tid, parent)) { desktop_putc(tid, parent, c, mirror); return; }
     int first, height;
     int id = locate(tid, parent, &first, &height);
     if (id < 0 || !fbcon_cols()) { console_putc(c); return; }
@@ -70,6 +72,7 @@ void terminal_paintc(int tid, int parent, char c) { putc_impl(tid, parent, c, 0)
 
 long terminal_control(int tid, int parent, long op, long col, long row)
 {
+    if (desktop_has_window(tid, parent)) return desktop_term(tid, parent, op, col, row);
     int first, height;
     int id = locate(tid, parent, &first, &height);
     if (id < 0) return -1;

@@ -39,6 +39,13 @@ int main(void)
     const u8 down[3] = {0x38, 246, 236};
     const u8 extremes[3] = {0x28, 255, 0};
     check(cursor_boot_probe() == 0, "cursor boot save/restore remains exact");
+    int light=0, dark=0;
+    for (u32 r=0;r<CUR_H;++r) for (u32 c=0;c<CUR_W;++c) {
+        u32 pixel=fb_pixel_get(cursor_x()+c,cursor_y()+r);
+        if(pixel==0xf8f8f8)++light;
+        if(pixel==0x172c3d)++dark;
+    }
+    check(light==CUR_LIGHT_PIXELS && dark>0,"outlined pointer has visible light and dark pixels");
     u32 x = cursor_x(), y = cursor_y();
     ps2_mouse_motion(up, &dx, &dy);
     check(dx == 10 && dy == -20, "positive-up PS/2 motion becomes negative screen Y");

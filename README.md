@@ -5,7 +5,7 @@ BIOS bootloader, kernel, drivers and userland.
 
 KernOS has a graphical desktop, a Notepad-style editor and a console.
 Write C, save it to disk, compile it with the TinyCC-based KCC compiler,
-and run the result—all inside the OS.
+and run the result, all inside the OS.
 
 ![KernOS desktop with Notepad and Console running in QEMU](docs/images/kernos-clean-desktop.png)
 
